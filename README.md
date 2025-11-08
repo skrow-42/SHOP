@@ -50,7 +50,7 @@ Cell/ NPC Filtering: Configurable blacklists for specific cells or NPCs (or all 
 
 Essential NPCs: Essential NPCs are completely excluded from following script
 
-Enemy cells exluded: Script is turned off in cells with enemies
+Enemy cells excluded: Script is turned off in cells with enemies
 
 
 
