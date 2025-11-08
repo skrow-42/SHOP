@@ -10,6 +10,8 @@ or here:
 https://www.nexusmods.com/morrowind/mods/57747?tab=posts
 
 
+
+
 Full integration in SHOP:
 
 ErnBurglary - Burglary Overhaul (v1.3.8 and higher) https://github.com/ernmw/ErnBurglary
@@ -19,6 +21,7 @@ Daisy Lua Multi Mark https://www.nexusmods.com/morrowind/mods/53260
 
 
 Features
+
 
 
 Automatic Guard Following: NPCs in interior cells automatically recruit as guards based on priority (faction rank, class, etc.) when the player is detected
@@ -49,9 +52,13 @@ Essential NPCs: Essential NPCs are completely excluded from following script
 
 Enemy cells exluded: Script is turned off in cells with enemies
 
+
+
 Requirements
 
 OpenMW: Version 0.49 or higher
+
+
 
 Installation
 
