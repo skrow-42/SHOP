@@ -1,0 +1,4 @@
+PLAYER: scripts/antitheftai/AntiTheftGlobal.lua
+PLAYER: scripts/antitheftai/player_settings.lua
+GLOBAL: scripts/antitheftai/globalaiwalkback.lua
+NPC: scripts/antitheftai/npc_rotation.lua
