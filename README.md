@@ -4,8 +4,8 @@ Witness never seen Ai behavior in Morrowind (OpenMW). Stealing is now very hard 
 
 Please report any bugs or feature requests here:
 https://discord.com/channels/260439894298460160/1430304182543323297
-
 or here:
+
 https://www.nexusmods.com/morrowind/mods/57747?tab=posts
 
 Full integration in SHOP:
