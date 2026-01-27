@@ -1202,17 +1202,17 @@ local npcVoiceResponses = {
 }
 
 local raceIdToName = {
-    ["argonian"] = "Argonian",
-    ["breton"] = "Breton",
-    ["darkelf"] = "DarkElf",
-    ["highelf"] = "HighElf",
-    ["imperial"] = "Imperial",
-    ["khajiit"] = "Khajiit",
-    ["nord"] = "Nord",
-    ["orc"] = "Orc",
-    ["redguard"] = "Redguard",
-    ["woodelf"] = "WoodElf",
-    ["imga"] = "T_Val_Imga",  -- example special case
+    ["argonian"] = "argonian",
+    ["breton"] = "breton",
+    ["darkelf"] = "darkelf",
+    ["highelf"] = "highelf",
+    ["imperial"] = "imperial",
+    ["khajiit"] = "khajiit",
+    ["nord"] = "nord",
+    ["orc"] = "orc",
+    ["redguard"] = "redguard",
+    ["woodelf"] = "woodelf",
+    ["imga"] = "T_Val_Imga",
     ["chimeriquey"] = "T_Cnq_ChimeriQuey",
     ["keptuquey"] = "T_Cnq_Keptu",
     ["reachman"] = "T_Sky_Reachman"
@@ -1275,7 +1275,11 @@ local function playNpcVoiceResponse(npc, race, gender)
             return
         end
 
-        gender = record.female and "female" or "male"
+        -- Debug gender field
+        log("[NPC VOICE RESPONSE] DEBUG: record.isMale =", tostring(record.isMale))
+
+        -- Gender detection: isMale = true means male, isMale = false or nil means female
+        gender = (record.isMale == true) and "male" or "female"
         
         -- Cache the result for future use
         npcRaceGenderCache[npc.id] = {race=race, gender=gender}
@@ -2306,7 +2310,7 @@ return {
             processPendingReturns(dt)
             updateGlobalRotations(dt)
 
-            -- Check for cell change to reset disposition tracking
+            -- Check for cell change to reset disposition tracking AND door lock states
             local player = world.players[1]
             if player and player.cell then
                 if lastPlayerCell ~= player.cell.name then
@@ -2316,6 +2320,9 @@ return {
                     lastPlayerCell = player.cell.name
                     -- Reset disposition tracking for the new cell
                     dispositionAppliedCells[player.cell.name] = nil
+                    -- Reset door lock states to prevent triggering on cell load
+                    doorLockStates = {}
+                    doorLockStatesJustInitialized = false
                     log("Player entered cell", player.cell.name, "- disposition can be applied again")
                 end
             end
@@ -2712,6 +2719,7 @@ return {
             -- Process door lock level monitoring (moved from player script)
             local player = world.players[1]
             if player and player.cell and not player.cell.isExterior then
+
                 -- Helper function to count table elements
                 local function tableSize(t)
                     local count = 0
@@ -2907,7 +2915,8 @@ return {
                     end
                 end
             end  -- Close the else block for lock change detection
-        end
+
+        end  -- End cell check
 
            
             -- Process combat door investigations

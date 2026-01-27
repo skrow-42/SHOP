@@ -121,9 +121,12 @@ function classification.getNPCPriority(npc, types, player, cell, config, nearby)
     end
 
     local basePriority
-    if hasServices then basePriority = 3
-    elseif isMerchant then basePriority = 4
-    else basePriority = 2
+    if hasServices then 
+        basePriority = 3
+    elseif isMerchant then 
+        basePriority = 4
+    else 
+        basePriority = 2
     end
 
     -- Check if we're in a guild cell and handle high-rank player restrictions
@@ -150,6 +153,7 @@ function classification.getNPCPriority(npc, types, player, cell, config, nearby)
                 cellFaction = factionId
             end
         end
+        
         if cellFaction then
             log("Cell", cell.name or "", "detected as", cellFaction, "guild cell (", maxCount, "members)")
 
@@ -159,18 +163,19 @@ function classification.getNPCPriority(npc, types, player, cell, config, nearby)
                 for _, pf in ipairs(playerFactions) do
                     if pf.factionId == cellFaction then
                         local playerRank = pf.rank
-                        local threshold  = config.FACTION_IGNORE_RANK
+                        local threshold = config.FACTION_IGNORE_RANK
                         log("Player has rank", playerRank, "in", pf.factionId,
                             "(threshold:", threshold, ")")
 
                         if playerRank >= threshold then
                             log("Player rank >= threshold – disabling NPC following in this cell")
-                            return 999          -- Disable following
+                            return 999  -- Disable following
                         else
                             log("Player rank < threshold – allowing NPC following in this cell")
+                        end
+                    end
+                end
             end
-        end
-    end
 
             -- For guild cells, prefer lowest rank NPCs (except merchants)
             if not isMerchant then
@@ -186,7 +191,6 @@ function classification.getNPCPriority(npc, types, player, cell, config, nearby)
                     end
                 end
             end
-        end
         end
     end
 

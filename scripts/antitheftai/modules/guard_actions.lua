@@ -156,14 +156,8 @@ function actions.recruit(npc, state, detection, self)
             end
         end
 
-        local gender = "male" -- default
-        if record.isMale ~= nil then
-            if record.isMale then
-                gender = "male"
-            else
-                gender = "female"
-            end
-        end
+        -- Gender detection: isMale = true means male, isMale = false means female
+        local gender = (record.isMale == true) and "male" or "female"
 
         npcRaceGenderMap[npc.id] = { race = race, gender = gender }
         log("Stored race and gender for NPC", npc.id, "Race:", race, "Gender:", gender)

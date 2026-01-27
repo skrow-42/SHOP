@@ -93,6 +93,7 @@ settings.vars:subscribe(async:callback(function(_, key)
     if key == nil or key == 'disableHelloWhileFollowing' then config.DISABLE_HELLO_WHILE_FOLLOWING = settings.vars:get('disableHelloWhileFollowing') or true end
     if key == nil or key == 'factionIgnoreRank' then config.FACTION_IGNORE_RANK = settings.vars:get('factionIgnoreRank') or 5 end
     if key == nil or key == 'dispositionFollowingIgnore' then config.DISPOSITION_FOLLOWING_IGNORE = settings.vars:get('dispositionFollowingIgnore') or 100 end
+    if key == nil or key == 'simulatedTravelSpeed' then config.SIMULATED_TRAVEL_SPEED = settings.vars:get('simulatedTravelSpeed') or 300.0 end
 end))
 
 settings.distances:subscribe(async:callback(function(_, key)
@@ -1060,7 +1061,7 @@ local function onApplyDoorBounty(data)
             local rawRace = record.race and record.race.id and record.race.id:lower() or nil
             if rawRace and raceIdToName[rawRace] then
                 race = raceIdToName[rawRace]
-                gender = record.female and "female" or "male"
+                gender = record.isMale  -- true = male, false = female
                 log("[DOOR BOUNTY] Retrieved race and gender from NPC record: race =", race, ", gender =", gender)
             else
                 log("[DOOR BOUNTY] ERROR: Could not find race or gender for guard NPC")
@@ -1189,7 +1190,7 @@ local function onUpdate(dt)
                                 end
                             end
                             -- Extract gender
-                            npcGender = npcRecord.female and "female" or "male"
+                            npcGender = npcRecord.isMale  -- true = male, false = female
                         end
                     end
                     
@@ -2177,12 +2178,12 @@ local function onUpdate(dt)
                         log("[DEBUG] guardHasBarter:", tostring(guardHasBarter))
                     end
                     
-                    -- PRIORITY: Return to counter if merchant has left post and is within 400 units
+                    -- PRIORITY: Return to counter if merchant has left post and is within 350 units
                     if guardHasBarter and state.home and state.home.pos and state.npcWasOutsideRadius then
                         local npcDistToHome = (state.guard.position - state.home.pos):length()
                         
-                        if npcDistToHome <= 320 and not state.returningToCounter then
-                        log("[SERVICE NPC] *** PRIORITY: Within 320 units after leaving - start returning ***")
+                        if npcDistToHome <= 450 and not state.returningToCounter then
+                        log("[SERVICE NPC] *** PRIORITY: Within 350 units after leaving - start returning ***")
                             -- Send Travel package immediately
                             state.guard:sendEvent('StartAIPackage', {
                                 type = 'Travel',
@@ -2265,32 +2266,32 @@ local function onUpdate(dt)
                                 
                                 log("[SERVICE NPC] LoS Active. Player dist to home: " .. string.format("%.1f", playerDistToHome) .. ", NPC dist to home: " .. string.format("%.1f", npcDistToHome))
                                 
-                                -- Track when NPC is outside the 400-unit radius
-                                if npcDistToHome > 400 then
+                                -- Track when NPC is outside the 350-unit radius
+                                if npcDistToHome > 350 then
                                     if not state.npcWasOutsideRadius then
-                                        log("[SERVICE NPC] NPC is now OUTSIDE 400-unit radius (tracking)")
+                                        log("[SERVICE NPC] NPC is now OUTSIDE 350-unit radius (tracking)")
                                         state.npcWasOutsideRadius = true
                                     end
                                     
                                     -- Normal following logic when outside radius
-                                    if playerDistToHome > 400 then
+                                    if playerDistToHome > 350 then
                                         if state.returningToCounter then
                                             state.returningToCounter = false
-                                            log("[SERVICE NPC] Player moved > 400 units away - Resuming follow")
+                                            log("[SERVICE NPC] Player moved > 350 units away - Resuming follow")
                                         end
                                         if not state.returningToCounter then
                                             actions.followPlayer(state, self, config)
                                         end
                                     end
                                 else
-                                    -- NPC is within 400 units of home
+                                    -- NPC is within 350 units of home
                                     if state.npcWasOutsideRadius then
-                                        log("[SERVICE NPC] *** NPC ENTERED 400-unit radius (was outside before) ***")
+                                        log("[SERVICE NPC] *** NPC ENTERED 350-unit radius (was outside before) ***")
                                         
-                                        if npcDistToHome > 50 then
+                                        if npcDistToHome > 25 then
                                             if not state.returningToCounter then
                                                 -- Only start returning if not already returning
-                                                log("[SERVICE NPC] NPC entered 400-unit radius. Sending merchant home. Dist: " .. string.format("%.1f", npcDistToHome))
+                                                log("[SERVICE NPC] NPC entered 350-unit radius. Sending merchant home. Dist: " .. string.format("%.1f", npcDistToHome))
                                                 state.guard:sendEvent('StartAIPackage', {
                                                     type = 'Travel',
                                                     destPosition = state.home.pos,
@@ -2327,8 +2328,8 @@ local function onUpdate(dt)
                                             log("[SERVICE NPC] Merchant state cleared. Will not re-recruit until player loses LoS.")
                                          end
                                     else
-                                        -- NPC is within 400 units but never left - stay at counter while LoS
-                                        log("[SERVICE NPC] NPC within 400 units (never left radius) - staying at counter")
+                                        -- NPC is within 350 units but never left - stay at counter while LoS
+                                        log("[SERVICE NPC] NPC within 350 units (never left radius) - staying at counter")
                                     end
                                 end
                             else
