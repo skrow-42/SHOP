@@ -12,7 +12,7 @@ local injected_random = {}
 
 -- Configuration for Merchant Injection (Thief merchants in Thieves Guild locations)
 local BLACKJACK_ITEMS_MERCHANT = {'blackjack-wooden', 'blackjack-iron', 'blackjack-imperial', 'blackjack-dwemer'}
-local KEYLOCK_ITEMS_MERCHANT = {'keylock-iron', 'keylock-imperial', 'keylock-dwemer', 'keylock-master', 'keylock-skeleton'}
+local KEYLOCK_ITEMS_MERCHANT = {'keylock-iron', 'keylock-imperial', 'keylock-dwemer', 'keylock-master'}
 
 -- Configuration for Random Drops (thief classes outside TG locations)
 local DROP_CHANCE = 1 -- Percentage (0-100)
@@ -75,8 +75,7 @@ local LEVEL_REQUIREMENTS = {
     ['keylock-iron'] = 1,
     ['keylock-imperial'] = 5,
     ['keylock-dwemer'] = 10,
-    ['keylock-master'] = 20,
-    ['keylock-skeleton'] = 35
+    ['keylock-master'] = 20
 }
 
 -- --- Logic A: Merchant Restock ---
