@@ -90,7 +90,7 @@ settings.distances:subscribe(async:callback(function(_, key)
 end))
 
 local function log(...)
-    if not debugEnabled then return end
+    -- Temporarily enabled for debugging - always print
     local args = { ... }
     for i, v in ipairs(args) do
         args[i] = tostring(v)
@@ -328,6 +328,8 @@ local function onNPCReady(eventData)
             state.guardPriority = 999
             state.searching = false  -- Clear search state to prevent re-searching when invisibility wears off
             state.forceLOSCheck = true  -- Force a LOS check to trigger normal recruitment
+            -- Clear from disbanded guards list since NPC has returned home
+            state.disbandedGuards[eventData.npcId] = nil
             log("Cleared guard state for returned NPC", eventData.npcId, "- will re-engage via normal recruitment when player is visible")
         end
 
@@ -363,6 +365,71 @@ local function onClearSearchState(eventData)
         detection.removedEffects[config.EFFECT_CHAM] = nil
 
         log("✓ Search state cleared for NPC", eventData.npcId)
+    end
+end
+
+local function onS3CombatTargetAdded(eventData)
+    log("DEBUG: S3CombatTargetAdded event received, actor:", eventData and eventData.id or "nil")
+    -- eventData is the actor that entered combat
+    if eventData and state.guard and state.guard.id == eventData.id and state.following then
+        -- Check if the NPC is fighting the player by checking the player's combat targets
+        local combatTargets = I.s3lf.combatTargets
+        local fightingPlayer = false
+        if combatTargets then
+            for _, target in ipairs(combatTargets) do
+                if target.id == eventData.id then
+                    fightingPlayer = true
+                    break
+                end
+            end
+        end
+
+        if fightingPlayer then
+            log("Following NPC entered combat with player - allowing combat to continue")
+            state.guardInCombat = true
+            state.wasInCombatWithPlayer = true
+            -- Don't disband, let the NPC fight the player
+        else
+            log("Following NPC entered combat with non-player target - disbanding completely")
+            -- Disband completely from the player and remove all scripts to allow default behavior
+            state.following = false
+            state.searching = false
+            state.returningHome = false
+
+            -- Add to disbanded guards list to maintain effect detection and combat memory
+            if state.guard and state.guard:isValid() then
+                state.disbandedGuards[state.guard.id] = {
+                    wasInCombatWithPlayer = state.wasInCombatWithPlayer
+                }
+                -- Store combat memory persistently
+                storage.storeCombatMemory(state.guard.id, state.wasInCombatWithPlayer)
+                log("Added NPC", state.guard.id, "to disbanded guards list for effect detection (combat memory:", state.wasInCombatWithPlayer and "yes" or "no", ")")
+            end
+
+            -- Clear guard reference to allow recruitment of another NPC
+            state.guard = nil
+            state.guardPriority = 999
+            state.guardInCombat = false
+        end
+    end
+end
+
+local function onS3CombatTargetRemoved(eventData)
+    log("DEBUG: S3CombatTargetRemoved event received, actor:", eventData and eventData.id or "nil")
+    -- eventData is the actor that exited combat
+    if eventData and state.guard and state.guard.id == eventData.id then
+        if types.Actor.isDead(eventData) then
+            log("Following NPC", state.guard.id, "died - removing AI packages")
+            state.guard:sendEvent('RemoveAIPackages')
+    else
+        log("Following NPC", state.guard.id, "exited combat - starting search for player")
+        -- Mark that this search was initiated due to combat removal
+        state.searchDueToCombatRemoval = true
+        -- Start search behavior instead of going home
+        actions.startSearch(state, detection, config)
+    end
+        -- Reset combat state
+        state.guardInCombat = false
     end
 end
 
@@ -671,6 +738,26 @@ local function onUpdate(dt)
                     log("  Restored hello value to", originalHello, "for NPC", npcId, "upon returning to cell")
                 end
                 state.pendingHelloRestorations[npcId] = nil
+            end
+        end
+
+        -- Process pending alarm restorations when entering a new cell
+        if state.pendingAlarmRestorations then
+            for npcId, originalAlarm in pairs(state.pendingAlarmRestorations) do
+                local npc = nil
+                for _, actor in ipairs(nearby.actors) do
+                    if actor.id == npcId then
+                        npc = actor
+                        break
+                    end
+                end
+                if npc and npc:isValid() then
+                    npc:sendEvent('AntiTheft_SetAlarm', {
+                        value = originalAlarm
+                    })
+                    log("  Restored alarm value to", originalAlarm, "for NPC", npcId, "upon returning to cell")
+                end
+                state.pendingAlarmRestorations[npcId] = nil
             end
         end
 
@@ -999,21 +1086,21 @@ local function onUpdate(dt)
     end
 
     -- Handle effect removal first (before status checks)
-    if state.searching then
+    if state.searching or state.following or state.guardInCombat then
         local eff = types.Actor.activeEffects(self)
         local inv = eff:getEffect(config.EFFECT_INVIS)
         local cham = eff:getEffect(config.EFFECT_CHAM)
         local chamMag = cham and cham.magnitude or 0
 
-        for _, actor in ipairs(nearby.actors) do
-            if actor.type == types.NPC then
+    for _, actor in ipairs(nearby.actors) do
+        if actor.type == types.NPC and ((state.guard and actor.id == state.guard.id) or state.searching or state.disbandedGuards[actor.id]) then
                 local distance = (actor.position - self.position):length()
 
                 -- Calculate dynamic removal range for chameleon
                 local chamRemovalRange = 450 - 3.5 * chamMag  -- 100% chameleon: 100 units, 0% chameleon: 450 units
 
                 if distance <= config.DETECTION_RANGE or (cham and chamMag >= config.CHAM_HIDE_LIMIT and distance <= chamRemovalRange) then
-                    log("[SEARCH] Within removal range of NPC", actor.id, "- distance:", math.floor(distance), "chamMag:", chamMag, "chamRange:", math.floor(chamRemovalRange))
+                    log("[SPELL REMOVAL] Within removal range of NPC", actor.id, "- distance:", math.floor(distance), "chamMag:", chamMag, "chamRange:", math.floor(chamRemovalRange))
 
                     if inv and inv.magnitude and inv.magnitude > 0 and not detection.removedEffects[config.EFFECT_INVIS] then
                         log("*** REMOVING INVISIBILITY ***")
@@ -1025,6 +1112,16 @@ local function onUpdate(dt)
                         self:sendEvent('AddVfx', { model = "meshes/e/magic_cast_ill.NIF" })
                         core.sound.playSoundFile3d("Fx/magic/illusFail.wav", self)
                         lowerCellDisposition()
+
+                        -- If NPC was in combat with player before invisibility, resume combat (after state is set)
+                        if state.wasInCombatWithPlayer and state.guard and state.guard.id == actor.id then
+                            log("*** RESUMING COMBAT AFTER INVISIBILITY REMOVAL ***")
+                            state.guardInCombat = true
+                            state.guard:sendEvent('StartAIPackage', {type='Combat', target=self})
+                        elseif state.guardInCombat and state.guard and state.guard.id == actor.id then
+                            log("*** INVISIBILITY DETECTED DURING COMBAT - STARTING SEARCH ***")
+                            actions.startSearch(state, detection, config)
+                        end
 
                         log("*** INVISIBILITY REMOVED ***")
                     elseif cham and chamMag >= config.CHAM_HIDE_LIMIT and not detection.removedEffects[config.EFFECT_CHAM] then
@@ -1235,6 +1332,14 @@ local function onUpdate(dt)
     if state.guard and state.guard:isValid() then
         if dialogueOpen then return end
 
+        -- Check if NPC is in combat with player and player becomes hidden - start search immediately
+        if state.guardInCombat and isHidden and not state.searching then
+            log("*** PLAYER BECAME HIDDEN DURING COMBAT - STARTING SEARCH ***")
+            state.guardInCombat = false  -- Clear combat state to prevent fleeing
+            state.searchDueToCombatRemoval = true  -- Mark that search is due to combat interruption
+            actions.startSearch(state, detection, config)
+        end
+
         if state.following then
             if pathModule.pathRecording[state.guard.id] and pathModule.pathRecording[state.guard.id].recordingActive then
                 pathModule.updatePathRecording(state.guard.id, state.guard, dt, config)
@@ -1342,7 +1447,7 @@ local function onUpdate(dt)
 
         elseif state.searching then
             local distance = (state.guard.position - self.position):length()
-            log("[SEARCH] Guard dist:", math.floor(distance), "Time:", math.floor(state.searchT), "/", (state.searchTime or config.SEARCH_WTIME_MAX))
+            log("[SEARCH] Guard dist:", math.floor(distance), "Time:", math.floor(state.searchT), "/", (state.searchTime or 75))
 
             state.searchT = state.searchT + dt
 
@@ -1368,26 +1473,59 @@ local function onUpdate(dt)
             end
 
             if (not isSneakHidden and not isMagicHidden and detection.canNpcSeePlayer(state.guard, self, nearby, types, config)) or playerSpottedByOtherNPC then
-                log("*** PLAYER DETECTED BY GUARD ***")
+                log("*** PLAYER DETECTED BY GUARD DURING SEARCH ***")
                 if not state.stealthMessageSent and not state.invisMessageSent then
                     self:sendEvent('ShowMessage', {
                         message = config.invisRemovalMessages[math.random(#config.invisRemovalMessages)]
                     })
                     state.stealthMessageSent = true
                 end
-                actions.followPlayer(state, self, config)
-            elseif state.searchT >= (state.searchTime or config.SEARCH_WTIME_MAX) then
+                -- Clear search state and resume appropriate behavior
+                state.searching = false
+                state.searchT = 0
+                state.searchTime = nil
+
+                -- If NPC was previously in combat with player OR search was due to combat removal, resume combat
+                if state.wasInCombatWithPlayer or state.searchDueToCombatRemoval then
+                    log("*** RESUMING COMBAT WITH PLAYER DURING SEARCH ***")
+                    state.guardInCombat = true
+                    state.wasInCombatWithPlayer = true
+                    -- Start combat AI package to attack the player
+                    state.guard:sendEvent('StartAIPackage', {type='Combat', target=self})
+                    -- Clear the combat removal flag
+                    state.searchDueToCombatRemoval = false
+                else
+                    actions.followPlayer(state, self, config)
+                end
+            elseif state.searchT >= (state.searchTime or 75) then
                 log("*** SEARCH TIME EXPIRED ***")
-                actions.goHome(state, core)
-                -- Clear search state after returning home to prevent endless search loop
-                if state.hasReturnedHome then
+                -- Check if player is visible and NPC was previously in combat with player
+                if state.wasInCombatWithPlayer and not isSneakHidden and not isMagicHidden and detection.canNpcSeePlayer(state.guard, self, nearby, types, config) then
+                    log("*** PLAYER VISIBLE WHEN SEARCH EXPIRED AND WAS IN COMBAT - RESUMING COMBAT ***")
+                    -- Resume combat state from before invisibility
+                    state.guardInCombat = true
+                    state.wasInCombatWithPlayer = true
+                    -- Start combat AI package to attack the player
+                    state.guard:sendEvent('StartAIPackage', {type='Combat', target=self})
+                    -- Clear search state
                     state.searching = false
-                    state.hasReturnedHome = false
-                    log("*** SEARCH CANCELLED AFTER RETURNING HOME ***")
+                    state.searchT = 0
+                    state.searchTime = nil
+                elseif not isSneakHidden and not isMagicHidden and detection.canNpcSeePlayer(state.guard, self, nearby, types, config) then
+                    log("*** PLAYER VISIBLE WHEN SEARCH EXPIRED - RESUMING FOLLOW ***")
+                    actions.followPlayer(state, self, config)
+                elseif not isHidden then
+                    actions.goHome(state, core)
+                    -- Clear search state after returning home to prevent endless search loop
+                    if state.hasReturnedHome then
+                        state.searching = false
+                        state.hasReturnedHome = false
+                        log("*** SEARCH CANCELLED AFTER RETURNING HOME ***")
+                    end
                 end
             end
 
-        elseif not state.following and not state.searching and not state.returningHome and
+        elseif not state.following and not state.searching and not state.returningHome and not state.guardInCombat and
                not dialogueOpen and not isSneakHidden and not isMagicHidden then
             log("[UPDATE] Guard exists but not in known state - starting follow")
             actions.followPlayer(state, self, config)
@@ -1405,6 +1543,8 @@ return {
     eventHandlers = {
         AntiTheft_NPCReady = onNPCReady,
         AntiTheft_ClearSearchState = onClearSearchState,
-        AntiTheft_MagicEffectApplied = onMagicEffectApplied
+        AntiTheft_MagicEffectApplied = onMagicEffectApplied,
+        S3CombatTargetAdded = onS3CombatTargetAdded,
+        S3CombatTargetRemoved = onS3CombatTargetRemoved
     }
 }

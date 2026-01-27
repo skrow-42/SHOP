@@ -25,16 +25,15 @@ local settings = require('scripts.antitheftai.SHOPsettings')
 local seenMessages = {}
 
 local function log(...)
-    if settings.general:get("enableDebug") then
-        local args = {...}
-        for i, v in ipairs(args) do
-            args[i] = tostring(v)
-        end
-        local msg = table.concat(args, " ")
-        if not seenMessages[msg] then
-            print("[NPC-AI]", ...)
-            seenMessages[msg] = true
-        end
+    -- Temporarily enabled for debugging - always print
+    local args = {...}
+    for i, v in ipairs(args) do
+        args[i] = tostring(v)
+    end
+    local msg = table.concat(args, " ")
+    if not seenMessages[msg] then
+        print("[NPC-AI]", ...)
+        seenMessages[msg] = true
     end
 end
 
@@ -160,6 +159,17 @@ local function onSetHello(data)
 end
 
 ----------------------------------------------------------------------
+-- Handle setting alarm value
+local function onSetAlarm(data)
+    if not data or data.value == nil then return end
+
+    log("Setting alarm value to", data.value, "for", self.id)
+    local types = require('openmw.types')
+    types.NPC.stats.ai.alarm(self).base = data.value
+    log("✓ Alarm value set to", data.value)
+end
+
+----------------------------------------------------------------------
 return {
     eventHandlers = {
         RemoveAIPackages = onRemoveAIPackages,
@@ -167,6 +177,7 @@ return {
         SaveOriginalAIState = onSaveOriginalAIState,
         RestoreOriginalAIState = onRestoreOriginalAIState,
         AntiTheft_EnableDefaultAI = onEnableDefaultAI,
-        AntiTheft_SetHello = onSetHello
+        AntiTheft_SetHello = onSetHello,
+        AntiTheft_SetAlarm = onSetAlarm
     }
 }

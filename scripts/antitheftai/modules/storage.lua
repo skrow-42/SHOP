@@ -50,15 +50,15 @@ end
 -- Store NPC data
 function storageModule.storeNPCData(npcId, data)
     local key = "npc_" .. tostring(npcId)
-    
+
     local rotX, rotY, rotZ = 0, 0, 0
     if data.rot then
         rotX, rotY, rotZ = utils.getEulerAngles(data.rot)
     end
-    
-    log("Storing NPC", npcId, "- Rot X:", math.deg(rotX), 
+
+    log("Storing NPC", npcId, "- Rot X:", math.deg(rotX),
         "Y:", math.deg(rotY), "Z:", math.deg(rotZ))
-    
+
     npcDataStorage:set(key, {
         cellName = data.cell.name or "unknown",
         posX = data.pos.x,
@@ -69,6 +69,26 @@ function storageModule.storeNPCData(npcId, data)
         rotZ = rotZ,
         stored = true
     })
+end
+
+-- Store combat memory for NPC
+function storageModule.storeCombatMemory(npcId, wasInCombatWithPlayer)
+    local key = "combat_" .. tostring(npcId)
+    npcDataStorage:set(key, {
+        wasInCombatWithPlayer = wasInCombatWithPlayer,
+        stored = true
+    })
+    log("Stored combat memory for NPC", npcId, "- wasInCombatWithPlayer:", wasInCombatWithPlayer)
+end
+
+-- Retrieve combat memory for NPC
+function storageModule.retrieveCombatMemory(npcId)
+    local key = "combat_" .. tostring(npcId)
+    local data = npcDataStorage:get(key)
+    if data and data.stored then
+        return data.wasInCombatWithPlayer
+    end
+    return false
 end
 
 -- Retrieve NPC data

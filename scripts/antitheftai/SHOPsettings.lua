@@ -337,6 +337,13 @@ if I.Settings and I.Settings.registerPage then
                 description = ' Invoke ErnBurglary spotted function when NPC starts following the player.\n Works only with ErnBurglary (Burglary Overhaul) v1.3.8 or higher.\n You MUST also turn "Disable Detection" option to YES in ErnBurglary.',
                 default     = false,
             },
+            {
+                key         = 'disableScriptOnChargenNPCs',
+                renderer    = 'checkbox',
+                name        = 'Disable Script on Chargen NPCs',
+                description = 'Disable the script for NPCs whose record ID contains "chargen".',
+                default     = false,
+            },
         },
     }
 end

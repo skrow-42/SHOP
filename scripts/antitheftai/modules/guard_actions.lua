@@ -75,6 +75,14 @@ function actions.recruit(npc, state, detection, self)
     local types = require('openmw.types')
     
     state.guard = npc
+    -- attach
+    if npc.addScript and not npc:hasScript('scripts/antitheftai/guardCombatForward') then
+        npc:addScript('scripts/antitheftai/guardCombatForward')
+    else
+        -- fallback: remember that this NPC is a guard so we can
+        -- still resume combat via the global timer (see below)
+        state.activeGuards[npc.id] = true
+    end
     state.guardPriority = classification.getNPCPriority(npc, types, self, npc.cell, config, require('openmw.nearby'))
     state.home = state.npcOriginalData[npc.id]
 
@@ -86,6 +94,29 @@ function actions.recruit(npc, state, detection, self)
     -- Clear invisibility and chameleon removal flags when recruiting
     detection.removedEffects[require('scripts.antitheftai.modules.config').EFFECT_INVIS] = nil
     detection.removedEffects[require('scripts.antitheftai.modules.config').EFFECT_CHAM] = nil
+
+    -- Check if this NPC has combat memory from previous encounters
+    local hasCombatMemory = false
+    if state.disbandedGuards[npc.id] and state.disbandedGuards[npc.id].wasInCombatWithPlayer then
+        hasCombatMemory = true
+    elseif storage.retrieveCombatMemory(npc.id) then
+        hasCombatMemory = true
+        -- Restore to runtime state if not already there
+        if not state.disbandedGuards[npc.id] then
+            state.disbandedGuards[npc.id] = { wasInCombatWithPlayer = true }
+        end
+    end
+
+    if hasCombatMemory then
+        log("[RECRUIT] NPC", npc.id, "has combat memory - starting combat immediately")
+        state.guardInCombat = true
+        state.wasInCombatWithPlayer = true
+        -- Start combat AI package to attack the player
+        npc:sendEvent('StartAIPackage', {type='Combat', target=require('openmw.self')})
+        -- Clear from disbanded guards list since we're resuming combat
+        state.disbandedGuards[npc.id] = nil
+        return
+    end
 end
 
 -- Follow player
@@ -101,6 +132,15 @@ function actions.followPlayer(state, self, config)
         })
         state.helloSet[state.guard.id] = true
         log("[FOLLOW] Sent event to set hello to 0 for NPC", state.guard.id, "(original was", state.originalHelloValues[state.guard.id], ")")
+    end
+
+    -- Set alarm to 100 when following to increase combat awareness (only once per NPC)
+    if state.originalAlarmValues[state.guard.id] and not state.alarmSet[state.guard.id] then
+        state.guard:sendEvent('AntiTheft_SetAlarm', {
+            value = 100
+        })
+        state.alarmSet[state.guard.id] = true
+        log("[FOLLOW] Sent event to set alarm to 100 for NPC", state.guard.id, "(original was", state.originalAlarmValues[state.guard.id], ")")
     end
 
     state.guard:sendEvent('StartAIPackage', {
@@ -287,6 +327,24 @@ function actions.goHome(state, core)
         state.helloSet[guardId] = nil
         log("[GO HOME] Restored hello value to", originalHello, "for NPC", guardId)
     end
+
+    -- Restore alarm value to default when disbanding (if it was set to 100)
+    if state.alarmSet[guardId] then
+        local originalAlarm = state.originalAlarmValues[guardId] or 0
+        state.guard:sendEvent('AntiTheft_SetAlarm', {
+            value = originalAlarm
+        })
+        state.alarmSet[guardId] = nil
+        log("[GO HOME] Restored alarm value to", originalAlarm, "for NPC", guardId)
+    end
+
+    -- detach
+    if state.guard and state.guard:isValid() then
+        if state.guard.removeScript and state.guard:hasScript('scripts/antitheftai/guardCombatForward') then
+            state.guard:removeScript('scripts/antitheftai/guardCombatForward')
+        end
+    end
+    state.activeGuards[state.guard.id] = nil      -- always clear the table entry
 
     state.following = false
     state.searching = false

@@ -77,6 +77,7 @@ state.spellCastCell = nil
 
 -- Combat state
 state.inCombat = false
+state.wasInCombatWithPlayer = false
 
 -- Storage tables
 state.leftBehindGuards = {}
@@ -89,6 +90,8 @@ state.npcHasWandered = {}
 state.crossCellReturns = {}
 state.pendingReturns = {}
 state.realTimeWandering = {}
+state.activeGuards = {}
+state.disbandedGuards = {}  -- NPCs that were disbanded but should still detect effects, with combat memory (persistent across sessions)
 
 
 
@@ -96,6 +99,11 @@ state.realTimeWandering = {}
 state.helloSet = {}
 state.originalHelloValues = {}
 state.pendingHelloRestorations = {}  -- Track NPCs that need hello restoration when player returns to cell
+
+-- Alarm value tracking
+state.alarmSet = {}
+state.originalAlarmValues = {}
+state.pendingAlarmRestorations = {}  -- Track NPCs that need alarm restoration when player returns to cell
 
 -- Reset function
 function state.reset()
@@ -123,6 +131,9 @@ function state.reset()
     -- Clear hello tracking on reset
     state.helloSet = {}
     state.pendingHelloRestorations = {}
+    -- Clear alarm tracking on reset
+    state.alarmSet = {}
+    state.pendingAlarmRestorations = {}
 end
 
 return state

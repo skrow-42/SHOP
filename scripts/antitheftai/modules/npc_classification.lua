@@ -229,6 +229,21 @@ function classification.isNpcDisabled(npc, disabledNpcNames, types)
     for contains in pairs(classification.disabledNpcNameContains) do
         if lowerName:find(contains, 1, true) then return true end
     end
+
+    -- Check for chargen NPCs if setting is enabled
+    local settings = require('scripts.antitheftai.SHOPsettings')
+    local enabled = settings.compatibility:get('disableScriptOnChargenNPCs')
+    log("Disable chargen setting enabled:", enabled)
+    if enabled then
+        local record = types.NPC.record(npc)
+        local recordId = record and record.id or ""
+        log("Checking NPC record ID for chargen:", recordId)
+        if recordId:lower():find("chargen", 1, true) then
+            log("Disabling script for chargen NPC:", recordId)
+            return true
+        end
+    end
+
     return false
 end
 
