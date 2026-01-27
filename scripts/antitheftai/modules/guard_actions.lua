@@ -27,6 +27,7 @@ local storage = require('scripts.antitheftai.modules.storage')
 local types = require('openmw.types')
 local self = require('openmw.self')
 local core = require('openmw.core')
+local nearby = require('openmw.nearby')
 local actions = {}
 
 local config = require('scripts.antitheftai.modules.config')
@@ -38,11 +39,27 @@ local function log(...)
     if settings.general:get("enableDebug") then
         local args = {...}
         for i, v in ipairs(args) do
-            args[i] = tostring(v)
+            if type(v) == "string" and v:match("^0x%x+$") then
+                -- If it's a hex ID, try to find the NPC in nearby actors
+                local npcName = nil
+                for _, actor in ipairs(nearby.actors) do
+                    if actor.id == v and actor.type == types.NPC then
+                        local record = types.NPC.record(actor)
+                        if record and record.name then
+                            npcName = record.name
+                            break
+                        end
+                    end
+                end
+                if npcName then
+                    args[i] = npcName .. " (" .. v .. ")"
+                end
+            end
+            args[i] = tostring(args[i])
         end
         local msg = table.concat(args, " ")
         if not seenMessages[msg] then
-            print("[NPC-AI]", ...)
+            print("[NPC-AI]", table.unpack(args))
             seenMessages[msg] = true
         end
     end
@@ -51,15 +68,22 @@ end
 -- Recruit guard
 function actions.recruit(npc, state, detection, self)
     if not npc then return end
-    
+
     log("[RECRUIT] Recruiting NPC", npc.id)
-    
+
     if state.mustCompleteReturn[npc.id] or state.returnInProgress[npc.id] then
         return
     end
-    
+
+    -- Check if we already have a different following guard in this cell
+    local cellName = npc.cell.name or ""
+    if state.guardsPerCell[cellName] and state.guardsPerCell[cellName].following and state.guardsPerCell[cellName].guard.id ~= npc.id then
+        log("[RECRUIT] Already have a different following guard in cell", cellName, "- cannot recruit another")
+        return
+    end
+
     local storedData = storage.retrieveNPCData(npc.id, npc.cell, require('openmw.util'))
-    
+
     if storedData then
         state.npcOriginalData[npc.id] = storedData
     elseif not state.npcOriginalData[npc.id] then
@@ -70,10 +94,10 @@ function actions.recruit(npc, state, detection, self)
         }
         storage.storeNPCData(npc.id, state.npcOriginalData[npc.id])
     end
-    
+
     local classification = require('scripts.antitheftai.modules.npc_classification')
     local types = require('openmw.types')
-    
+
     state.guard = npc
     -- attach
     if npc.addScript and not npc:hasScript('scripts/antitheftai/guardCombatForward') then
@@ -85,6 +109,9 @@ function actions.recruit(npc, state, detection, self)
     end
     state.guardPriority = classification.getNPCPriority(npc, types, self, npc.cell, config, require('openmw.nearby'))
     state.home = state.npcOriginalData[npc.id]
+
+    -- Set guard per cell
+    state.guardsPerCell[cellName] = { guard = npc, following = false }
 
     state.following = false
     state.searching = false
@@ -160,6 +187,12 @@ function actions.followPlayer(state, self, config)
     state.returningHome = false
     state.lastSeenPlayer = self.position
     log("[FOLLOW] Now following player")
+
+    -- Update guards per cell to mark as following
+    local cellName = state.guard.cell.name or ""
+    if state.guardsPerCell[cellName] then
+        state.guardsPerCell[cellName].following = true
+    end
 
     -- Start LOS monitoring for the recruited NPC
     if state.guard and state.guard:isValid() then
@@ -350,6 +383,13 @@ function actions.goHome(state, core)
     state.searching = false
     state.returningHome = true
     state.searchT = 0
+
+    -- Clear guard per cell when going home
+    local cellName = state.guard.cell.name or ""
+    if state.guardsPerCell[cellName] then
+        state.guardsPerCell[cellName] = nil
+    end
+
     state.guard = nil  -- Clear guard reference to allow recruitment of another NPC
 end
 

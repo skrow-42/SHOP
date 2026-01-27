@@ -306,7 +306,7 @@ function classification.shouldDisableCellForPublican(nearby, types)
     for _, actor in ipairs(nearby.actors) do
         if actor.type == types.NPC then
             local record = types.NPC.record(actor)
-            if record and record.class and record.class:lower() == "publican" then
+            if record and record.class and (record.class:lower() == "publican" or record.class:lower() == "t_glb_publican") then
                 return true
             end
         end

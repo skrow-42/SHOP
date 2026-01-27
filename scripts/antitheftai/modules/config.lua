@@ -80,11 +80,11 @@ config.invisRemovalMessages = {
 -- example: config.DISABLED_NPC_NAMES = {"caius cosades", "fargoth"}
 config.DISABLED_NPC_NAMES = {"tarancur", "duke dren", "arvesa", "julan"}
 -- example: config.DISABLED_CELL_NAMES = {"balmora, guild of fighters", "seyda neen, arrille's tradehouse"}
-config.DISABLED_CELL_NAMES = {"imperial prison ship"}
+config.DISABLED_CELL_NAMES = {"imperial prison ship", "mournhold, godsreach", "mournhold, plaza brindisi dorom", "mournhold, great bazaar", "mournhold, temple courtyard", "mournhold temple: high chapel", "mournhold temple: reception area", "ghostgate, temple"}
 -- example: config.DISABLED_NPC_NAME_CONTAINS = {"farg", "cosad"} , disables every NPC name containing added words
 config.DISABLED_NPC_NAME_CONTAINS = {}
 -- example: config.DISABLED_CELL_NAME_CONTAINS = {"kogo", "adama"} , disables every cell name containing added words
-config.DISABLED_CELL_NAME_CONTAINS = {"arena"}
+config.DISABLED_CELL_NAME_CONTAINS = {"arena", "museum"}
 
 -- Exterior cell exceptions (exact names that allow script activation, ie )
 config.ENABLED_EXTERIOR_CELLS = {

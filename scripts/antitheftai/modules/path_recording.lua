@@ -29,16 +29,34 @@ local config = require('scripts.antitheftai.modules.config')
 local seenMessages = {}
 
 local settings = require('scripts.antitheftai.SHOPsettings')
+local nearby = require('openmw.nearby')
+local types = require('openmw.types')
 
 local function log(...)
     if settings.general:get("enableDebug") then
         local args = {...}
         for i, v in ipairs(args) do
-            args[i] = tostring(v)
+            if type(v) == "string" and v:match("^0x%x+$") then
+                -- If it's a hex ID, try to find the NPC in nearby actors
+                local npcName = nil
+                for _, actor in ipairs(nearby.actors) do
+                    if actor.id == v and actor.type == types.NPC then
+                        local record = types.NPC.record(actor)
+                        if record and record.name then
+                            npcName = record.name
+                            break
+                        end
+                    end
+                end
+                if npcName then
+                    args[i] = npcName .. " (" .. v .. ")"
+                end
+            end
+            args[i] = tostring(args[i])
         end
         local msg = table.concat(args, " ")
         if not seenMessages[msg] then
-            print("[PathRec]", ...)
+            print("[PathRec]", table.unpack(args))
             seenMessages[msg] = true
         end
     end

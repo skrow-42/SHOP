@@ -89,21 +89,6 @@ settings.distances:subscribe(async:callback(function(_, key)
     if key == nil or key == 'detectionRange' then config.DETECTION_RANGE = settings.distances:get('detectionRange') or 75.0 end
 end))
 
-local function log(...)
-    -- Temporarily enabled for debugging - always print
-    local args = { ... }
-    for i, v in ipairs(args) do
-        args[i] = tostring(v)
-    end
-    local msg = table.concat(args, ' ')
-    if not seenMessages[msg] then
-        print('[AntiTheft-Player]', ...)
-        seenMessages[msg] = true
-    end
-end
-
-log('=== SCRIPT LOADING STARTED v20.0 - MODULAR ===')
-
 ----------------------------------------------------------------------
 -- Safe module loading
 ----------------------------------------------------------------------
@@ -114,7 +99,6 @@ local function safeRequire(moduleName)
         print('[AntiTheft-Player] ERROR: Failed to load', moduleName, ':', module)
         return nil
     end
-    log('Loaded module:', moduleName)
     return module
 end
 
@@ -129,6 +113,40 @@ if not (self and nearby and types and util and core) then
     error('[AntiTheft-Player] CRITICAL: Required modules failed to load!')
 end
 
+----------------------------------------------------------------------
+-- Debug logging with live-toggle support
+----------------------------------------------------------------------
+
+local function log(...)
+    -- Temporarily enabled for debugging - always print
+    local args = { ... }
+    for i, v in ipairs(args) do
+        if type(v) == "string" and v:match("^0x%x+$") then
+            -- If it's a hex ID, try to find the NPC in nearby actors
+            local npcName = nil
+            for _, actor in ipairs(nearby.actors) do
+                if actor.id == v and actor.type == types.NPC then
+                    local record = types.NPC.record(actor)
+                    if record and record.name then
+                        npcName = record.name
+                        break
+                    end
+                end
+            end
+            if npcName then
+                args[i] = npcName .. " (" .. v .. ")"
+            end
+        end
+        args[i] = tostring(args[i])
+    end
+    local msg = table.concat(args, ' ')
+    if not seenMessages[msg] then
+        print('[AntiTheft-Player]', table.unpack(args))
+        seenMessages[msg] = true
+    end
+end
+
+log('=== SCRIPT LOADING STARTED v20.0 - MODULAR ===')
 log('All required modules loaded successfully')
 
 -- Initialize systems
@@ -628,6 +646,15 @@ local function onUpdate(dt)
         if state.guard and state.guard:isValid() and state.following then
             log("  Player leaving cell with following guard - starting wandering immediately")
             actions.startSearch(state, detection, config)
+            -- Clear guard reference to allow recruitment in new cell
+            state.guard = nil
+            state.guardPriority = 999
+        end
+
+        -- Clear guards per cell for the old cell since guards can't follow across cells
+        if oldCellName ~= "" then
+            state.guardsPerCell[oldCellName] = nil
+            log("  Cleared guards per cell for old cell:", oldCellName)
         end
 
         -- Queue hello restoration for NPCs that were following when player left cell

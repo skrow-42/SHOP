@@ -92,6 +92,7 @@ state.pendingReturns = {}
 state.realTimeWandering = {}
 state.activeGuards = {}
 state.disbandedGuards = {}  -- NPCs that were disbanded but should still detect effects, with combat memory (persistent across sessions)
+state.guardsPerCell = {}  -- cellName -> {guard = npc, following = true/false}
 
 
 
@@ -134,6 +135,8 @@ function state.reset()
     -- Clear alarm tracking on reset
     state.alarmSet = {}
     state.pendingAlarmRestorations = {}
+    -- Clear guards per cell on reset
+    state.guardsPerCell = {}
 end
 
 return state

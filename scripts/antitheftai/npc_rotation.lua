@@ -24,21 +24,27 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 local settings = require('scripts.antitheftai.SHOPsettings')
 local seenMessages = {}
 
+local self = require('openmw.self')
+local nearby = require('openmw.nearby')
+local types = require('openmw.types')
+local AI = require('openmw.interfaces').AI
+
 local function log(...)
     -- Temporarily enabled for debugging - always print
+    local npcName = types.NPC.record(self).name or "Unknown"
     local args = {...}
     for i, v in ipairs(args) do
-        args[i] = tostring(v)
+        if v == self.id then
+            args[i] = npcName .. " (" .. v .. ")"
+        end
+        args[i] = tostring(args[i])
     end
     local msg = table.concat(args, " ")
     if not seenMessages[msg] then
-        print("[NPC-AI]", ...)
+        print("[NPC-AI]", table.unpack(args))
         seenMessages[msg] = true
     end
 end
-
-local self = require('openmw.self')
-local AI = require('openmw.interfaces').AI
 
 -- Track if we're currently controlled by Anti-Theft
 local isControlled = false
