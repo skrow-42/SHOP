@@ -34,21 +34,39 @@ local WEIGHTED_BLACKJACKS = {
 function mechanics.calculateStunChance(attacker, victim, levelDiffPenalty)
     if not attacker or not victim then return 0 end
 
-    -- 1. Base Stats (Average of Strength, Sneak, Blunt)
+    -- 1. Base Stats (Average of Strength, Sneak, and Blunt/Hand-to-Hand)
     local str = types.Actor.stats.attributes.strength(attacker).modified
+    
+    -- Check if attacker has a weapon equipped
+    local hasWeapon = false
+    if types.Actor.getEquipment then
+        local equipment = types.Actor.getEquipment(attacker)
+        hasWeapon = equipment[types.Actor.EQUIPMENT_SLOT.CarriedRight] ~= nil
+    end
+    
     -- Using skills for Player or NPC
     local sneak, blunt
     if attacker.type == types.Player then
         sneak = types.Player.stats.skills.sneak(attacker).modified
-        blunt = types.Player.stats.skills.bluntweapon(attacker).modified
+        -- Use hand-to-hand if no weapon equipped, otherwise use blunt weapon
+        if hasWeapon then
+            blunt = types.Player.stats.skills.bluntweapon(attacker).modified
+        else
+            blunt = types.Player.stats.skills.handtohand(attacker).modified
+        end
     else
         sneak = types.NPC.stats.skills.sneak(attacker).modified
-        blunt = types.NPC.stats.skills.bluntweapon(attacker).modified
+        -- Use hand-to-hand if no weapon equipped, otherwise use blunt weapon
+        if hasWeapon then
+            blunt = types.NPC.stats.skills.bluntweapon(attacker).modified
+        else
+            blunt = types.NPC.stats.skills.handtohand(attacker).modified
+        end
     end
     
     -- Formula: Average of the three stats
     -- Max possible average is 100 (if all are 100)
-    local baseChance = (str + sneak + blunt) / 3
+    local baseChance = (str + sneak + blunt) / 6
 
     -- 2. Level Difference Penalty
     -- User: each level NPC is higher than player reduces chance by 1%
@@ -100,13 +118,31 @@ end
 -- If Average is 100, Duration is 100.
 function mechanics.calculateDuration(attacker, weaponId, maxDuration)
     local str = types.Actor.stats.attributes.strength(attacker).modified
+    
+    -- Check if attacker has a weapon equipped
+    local hasWeapon = false
+    if types.Actor.getEquipment then
+        local equipment = types.Actor.getEquipment(attacker)
+        hasWeapon = equipment[types.Actor.EQUIPMENT_SLOT.CarriedRight] ~= nil
+    end
+    
     local sneak, blunt
     if attacker.type == types.Player then
         sneak = types.Player.stats.skills.sneak(attacker).modified
-        blunt = types.Player.stats.skills.bluntweapon(attacker).modified
+        -- Use hand-to-hand if no weapon equipped, otherwise use blunt weapon
+        if hasWeapon then
+            blunt = types.Player.stats.skills.bluntweapon(attacker).modified
+        else
+            blunt = types.Player.stats.skills.handtohand(attacker).modified
+        end
     else
         sneak = types.NPC.stats.skills.sneak(attacker).modified
-        blunt = types.NPC.stats.skills.bluntweapon(attacker).modified
+        -- Use hand-to-hand if no weapon equipped, otherwise use blunt weapon
+        if hasWeapon then
+            blunt = types.NPC.stats.skills.bluntweapon(attacker).modified
+        else
+            blunt = types.NPC.stats.skills.handtohand(attacker).modified
+        end
     end
 
     -- Formula: Average of stats = Duration in seconds

@@ -111,38 +111,43 @@ local function onHit(attack)
          return -- Mechanics disabled
     end
 
-    -- Check if hit by a weapon
-    if not attack.weapon then
-        return  -- Not a weapon attack, allow normal processing
-    end
-     
-    -- Get weapon record ID
-    local weaponRecord = types.Weapon.record(attack.weapon)
-    if not weaponRecord or not weaponRecord.id then
-        return  -- No weapon record, allow normal processing
-    end
-    
-    local weaponId = weaponRecord.id:lower()
-    log("[BLACKJACK SLEEP] NPC", self.id, "hit by weapon:", weaponId)
-    
-    -- Check if it's a blackjack weapon
-    if not BLACKJACK_WEAPONS[weaponId] then
-        log("[BLACKJACK SLEEP] Not a blackjack weapon, allowing normal hit processing")
-        return  -- Not a blackjack, allow normal processing
-    end
-    
-    log("[BLACKJACK SLEEP] ★★★ BLACKJACK HIT DETECTED! ★★★")
-    
-    -- Check if attacker exists and is the player
+    -- Check if attacker exists
     if not attack.attacker then
-        log("[BLACKJACK SLEEP] No attacker found, canceling attack anyway")
-        if attack.damage then
-            for stat, _ in pairs(attack.damage) do
-                attack.damage[stat] = 0
+        return  -- No attacker, allow normal processing
+    end
+    
+    local weaponId = nil
+    local isBlackjackWeapon = false
+    local isHandToHand = false
+    
+    -- Check if hit by a weapon (blackjack)
+    if attack.weapon then
+        local weaponRecord = types.Weapon.record(attack.weapon)
+        if weaponRecord and weaponRecord.id then
+            weaponId = weaponRecord.id:lower()
+            isBlackjackWeapon = BLACKJACK_WEAPONS[weaponId] or false
+            log("[BLACKJACK SLEEP] NPC", self.id, "hit by weapon:", weaponId)
+        end
+    end
+    
+    -- Check if attacker has no weapon equipped (hand-to-hand)
+    if not isBlackjackWeapon and types.Actor.getEquipment then
+        local equipment = types.Actor.getEquipment(attack.attacker)
+        if equipment then
+            isHandToHand = equipment[types.Actor.EQUIPMENT_SLOT.CarriedRight] == nil
+            if isHandToHand then
+                log("[BLACKJACK SLEEP] NPC", self.id, "hit by HAND-TO-HAND (unarmed)")
             end
         end
-        return false
     end
+    
+    -- Proceed only if blackjack weapon OR hand-to-hand
+    if not (isBlackjackWeapon or isHandToHand) then
+        log("[BLACKJACK SLEEP] Not a stun-capable attack, allowing normal hit processing")
+        return  -- Not a blackjack or hand-to-hand, allow normal processing
+    end
+    
+    log("[BLACKJACK SLEEP] ★★★ STUN ATTEMPT DETECTED! ★★★")
     
     -- Calculate if attack is from behind
     local util = require('openmw.util')

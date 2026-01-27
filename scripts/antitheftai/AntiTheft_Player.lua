@@ -1652,76 +1652,96 @@ local function onUpdate(dt)
         local displayMode = config.STUN_CHANCE_DISPLAY or 'off'
         if displayMode ~= 'off' then
             
-            -- 2. Check Stance & Weapon BEFORE Raycasting
+            -- 2. Check Stance BEFORE Raycasting
             local currentStance = types.Actor.getStance(self)
             if currentStance == types.Actor.STANCE.Weapon then
-                local equipment = types.Actor.getEquipment(self)
-                local weapon = equipment[types.Actor.EQUIPMENT_SLOT.CarriedRight]
+                local isBlackjackWeapon = false
+                local isHandToHand = false
+                local weaponReach = 1.0
                 
-                if weapon and weapon.type == types.Weapon then
-                    local weaponRecord = types.Weapon.record(weapon)
-                    if weaponRecord and weaponRecord.id and weaponRecord.id:lower():find("blackjack") then
-                        
-                        -- 3. Raycast Attempt (Only if blackjack in hand)
-                        local camPos = camera.getPosition()
-                        local rot = self.rotation 
-                        local forward = rot:apply(util.vector3(0, 1, 0))
-                        
-                        local reach = weaponRecord.reach or 1.0
-                        local dist = reach * 200 
-                        local endPos = camPos + (forward * dist)
-                        
-                        local ray = nearby.castRay(camPos, endPos, {
-                            collisionType = 3 + nearby.COLLISION_TYPE.Actor, 
-                            ignore = self
-                        })
+                local equipment = types.Actor.getEquipment(self)
+                if equipment then
+                    local weapon = equipment[types.Actor.EQUIPMENT_SLOT.CarriedRight]
+                    
+                    -- Check if it's a blackjack weapon
+                    if weapon and weapon.type == types.Weapon then
+                        local weaponRecord = types.Weapon.record(weapon)
+                        if weaponRecord and weaponRecord.id and weaponRecord.id:lower():find("blackjack") then
+                            isBlackjackWeapon = true
+                            weaponReach = weaponRecord.reach or 1.0
+                        end
+                    end
+                    
+                    -- Check if hand-to-hand (no weapon equipped)
+                    if not isBlackjackWeapon then
+                        isHandToHand = equipment[types.Actor.EQUIPMENT_SLOT.CarriedRight] == nil
+                        if isHandToHand then
+                            weaponReach = 1.0 -- Default reach for hand-to-hand
+                        end
+                    end
+                end
+                
+                -- Proceed if either blackjack OR hand-to-hand
+                if isBlackjackWeapon or isHandToHand then
+                    
+                    -- 3. Raycast Attempt (Only if blackjack or hand-to-hand)
+                    local camPos = camera.getPosition()
+                    local rot = self.rotation 
+                    local forward = rot:apply(util.vector3(0, 1, 0))
+                    
+                    local dist = weaponReach * 200 
+                    local endPos = camPos + (forward * dist)
+                    
+                    local ray = nearby.castRay(camPos, endPos, {
+                        collisionType = 3 + nearby.COLLISION_TYPE.Actor, 
+                        ignore = self
+                    })
 
-                        if ray.hit and ray.hitObject and ray.hitObject.type == types.NPC then
-                            local npc = ray.hitObject
-                            
-                            -- Check Angle
-                            local npcPos = npc.position
-                            local npcRot = npc.rotation
-                            local npcForward = npcRot:apply(util.vector3(0, 1, 0))
-                            local npcForwardNorm = util.vector3(npcForward.x, npcForward.y, 0):normalize()
-                            local attPos = self.position
-                            local toAttacker = util.vector3(attPos.x - npcPos.x, attPos.y - npcPos.y, 0):normalize()
-                            local dotProduct = npcForwardNorm:dot(toAttacker)
-                            local isFromBehind = dotProduct < -0.1
+                    if ray.hit and ray.hitObject and ray.hitObject.type == types.NPC then
+                        local npc = ray.hitObject
+                        
+                        -- Check Angle
+                        local npcPos = npc.position
+                        local npcRot = npc.rotation
+                        local npcForward = npcRot:apply(util.vector3(0, 1, 0))
+                        local npcForwardNorm = util.vector3(npcForward.x, npcForward.y, 0):normalize()
+                        local attPos = self.position
+                        local toAttacker = util.vector3(attPos.x - npcPos.x, attPos.y - npcPos.y, 0):normalize()
+                        local dotProduct = npcForwardNorm:dot(toAttacker)
+                        local isFromBehind = dotProduct < -0.1
 
-                            if isFromBehind then
-                                -- Check Message Cooldown
-                                if currentTime - lastStunMessageTime >= MESSAGE_COOLDOWN then
-                                    local mechanics = require('scripts.antitheftai.modules.blackjack_mechanics')
-                                    local chance = mechanics.calculateStunChance(self, npc)
-                                    
-                                    local msg = ""
-                                    if displayMode == 'exact' then
-                                        msg = string.format("Stun Chance: %.0f%%", chance)
-                                    elseif displayMode == 'contextual' then
-                                        if chance <= 1.0 then
-                                            msg = "You would have a better chance asking Almalexia out for a date than knocking this one out."
-                                        else
-                                            local msgs
-                                            local suffix = ""
-                                            if chance < 30 then 
-                                                msgs = STUN_MSGS_LOW
-                                                if config.ADD_STUN_SUFFIX then suffix = " - (Low)" end
-                                            elseif chance < 70 then 
-                                                msgs = STUN_MSGS_MED
-                                                if config.ADD_STUN_SUFFIX then suffix = " - (Medium)" end
-                                            else 
-                                                msgs = STUN_MSGS_HIGH
-                                                if config.ADD_STUN_SUFFIX then suffix = " - (High)" end
-                                            end
-                                            msg = msgs[math.random(#msgs)] .. suffix
+                        if isFromBehind then
+                            -- Check Message Cooldown
+                            if currentTime - lastStunMessageTime >= MESSAGE_COOLDOWN then
+                                local mechanics = require('scripts.antitheftai.modules.blackjack_mechanics')
+                                local chance = mechanics.calculateStunChance(self, npc)
+                                
+                                local msg = ""
+                                if displayMode == 'exact' then
+                                    msg = string.format("Stun Chance: %.0f%%", chance)
+                                elseif displayMode == 'contextual' then
+                                    if chance <= 1.0 then
+                                        msg = "You would have a better chance asking Almalexia out for a date than knocking this one out."
+                                    else
+                                        local msgs
+                                        local suffix = ""
+                                        if chance < 30 then 
+                                            msgs = STUN_MSGS_LOW
+                                            if config.ADD_STUN_SUFFIX then suffix = " - (Low)" end
+                                        elseif chance < 70 then 
+                                            msgs = STUN_MSGS_MED
+                                            if config.ADD_STUN_SUFFIX then suffix = " - (Medium)" end
+                                        else 
+                                            msgs = STUN_MSGS_HIGH
+                                            if config.ADD_STUN_SUFFIX then suffix = " - (High)" end
                                         end
+                                        msg = msgs[math.random(#msgs)] .. suffix
                                     end
+                                end
 
-                                    if msg ~= "" then
-                                        ui.showMessage(msg)
-                                        lastStunMessageTime = currentTime
-                                    end
+                                if msg ~= "" then
+                                    ui.showMessage(msg)
+                                    lastStunMessageTime = currentTime
                                 end
                             end
                         end
