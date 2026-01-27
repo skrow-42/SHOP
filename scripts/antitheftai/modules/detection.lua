@@ -62,7 +62,7 @@ detection.removedEffects = {}
 
 local function clearRay(from, to, ignoreNpc, nearby, self)
     local result = nearby.castRay(from, to, {
-        collisionType = 3,  -- Check static objects (walls, architecture) to block LOS
+        collisionType = 3,  -- Check static objects AND doors to block LOS
         ignore = {ignoreNpc, self}
     })
 
@@ -74,9 +74,15 @@ local function clearRay(from, to, ignoreNpc, nearby, self)
 end
 
 function detection.canNpcSeePlayer(npc, self, nearby, types, config)
-    if not self.cell or self.cell.isExterior then return false end
+    if not self.cell then return false end
     if not (npc and npc:isValid()) then return false end
-    if npc.cell ~= self.cell then return false end
+    
+    -- In exteriors, NPCs can be in adjacent cells but still be near and visible
+    if self.cell.isExterior then
+        if not npc.cell.isExterior then return false end 
+    else
+        if npc.cell ~= self.cell then return false end -- strictly same interior cell
+    end
     if types.Actor.isDead(npc) then return false end
 
     local toPlayer = self.position - npc.position
@@ -149,8 +155,8 @@ function detection.magicHidden(self, types, config)
     local chamMag = 0
     local hasCham = false
     
-    if ch then
-        chamMag = ch.magnitude or 0
+    if ch and ch.magnitude then
+        chamMag = ch.magnitude
         log("[MAGIC] Chameleon magnitude:", chamMag, "threshold:", config.CHAM_HIDE_LIMIT)
         if chamMag >= config.CHAM_HIDE_LIMIT then
             hasCham = true

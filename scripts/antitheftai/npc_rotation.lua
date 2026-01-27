@@ -66,10 +66,6 @@ local function onStartAIPackage(data)
 
     log("Starting AI package for", self.id, "- Type:", data.type)
 
-    if data.cancelOther then
-        AI.removePackages('all')
-    end
-
     if data.type == 'Travel' then
         AI.startPackage({
             type = 'Travel',

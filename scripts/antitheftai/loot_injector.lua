@@ -10,10 +10,11 @@ local settings = require('scripts.antitheftai.SHOPsettings')
 -- State to track which NPCs have been processed for random drops
 local injected_random = {}
 
--- Configuration for Merchant Injection
+-- Configuration for Merchant Injection (Thief merchants in Thieves Guild locations)
 local BLACKJACK_ITEMS_MERCHANT = {'blackjack-wooden', 'blackjack-iron', 'blackjack-imperial', 'blackjack-dwemer'}
+local KEYLOCK_ITEMS_MERCHANT = {'keylock-iron', 'keylock-imperial', 'keylock-dwemer', 'keylock-master', 'keylock-skeleton'}
 
--- Configuration for Random Drops
+-- Configuration for Random Drops (thief classes outside TG locations)
 local DROP_CHANCE = 1 -- Percentage (0-100)
 local DROP_CLASSES = {
     ['acrobat'] = true,
@@ -57,15 +58,25 @@ local BLACKJACK_ITEMS_DROP = {
     'blackjack-iron-extended',
     'blackjack-imperial-extended',
     'blackjack-dwemer-extended',
-    'blackjack-wooden-extended'
+    'blackjack-wooden-extended',
+    'keylock-skeleton', -- 1% chance drop for thief classes
+    'keylock-iron',
+    'keylock-imperial',
+    'keylock-dwemer',
+    'keylock-master'
 }
 
--- Level requirements for specific blackjack items
+-- Level requirements for merchant items (blackjacks and keylocks)
 local LEVEL_REQUIREMENTS = {
     ['blackjack-wooden'] = 1,
     ['blackjack-iron'] = 5,
     ['blackjack-imperial'] = 10,
-    ['blackjack-dwemer'] = 15
+    ['blackjack-dwemer'] = 15,
+    ['keylock-iron'] = 1,
+    ['keylock-imperial'] = 5,
+    ['keylock-dwemer'] = 10,
+    ['keylock-master'] = 20,
+    ['keylock-skeleton'] = 35
 }
 
 -- --- Logic A: Merchant Restock ---
@@ -114,9 +125,22 @@ local function processMerchantRestock(actor, cellFaction)
         playerLevel = types.Actor.stats.level(player).current
     end
 
-    -- Process Restock
+    -- Process Blackjack Restock
     local inv = types.Actor.inventory(actor)
     for _, item in ipairs(BLACKJACK_ITEMS_MERCHANT) do
+        -- Check Level Requirement
+        local reqLevel = LEVEL_REQUIREMENTS[item] or 1
+        
+        if playerLevel >= reqLevel then
+            if inv:countOf(item) == 0 then
+                world.createObject(item, 1):moveInto(inv)
+                -- print("[BlackjackInjector] Merchant Restock: Added " .. item .. " to " .. record.name)
+            end
+        end
+    end
+
+    -- Process Keylock Restock
+    for _, item in ipairs(KEYLOCK_ITEMS_MERCHANT) do
         -- Check Level Requirement
         local reqLevel = LEVEL_REQUIREMENTS[item] or 1
         

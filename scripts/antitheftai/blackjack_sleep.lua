@@ -100,126 +100,6 @@ local function log(...)
     end
 end
 
-----------------------------------------------------------------------
--- Helper: Civilian Reaction Logic (Level Scaling + Demoralize)
-----------------------------------------------------------------------
-local function handleCivilianReaction(npc, player)
-    if not npc or not player then return end
-
-    -- Calculate level-based probabilities
-    local playerLevel = types.Actor.stats.level(player).current
-    local civilianLevel = types.Actor.stats.level(npc).current
-    local levelDiff = playerLevel - civilianLevel  -- Positive = Player Advantage, Negative = NPC Advantage
-
-    -- Base chances (Phase 0 - Equal Level)
-    local attackChance = 10
-    local voiceChance = 30
-    local demoralizeChance = 60
-
-    -- Apply level scaling
-    if levelDiff > 0 then
-        -- === PLAYER ADVANTAGE (Player > NPC) ===
-        local scaledDiff = math.min(levelDiff, 20)  -- Cap at 20 effect
-        
-        -- Phase 1: Reduce attack chance (Levels +1 to +10)
-        -- Attack drops 1%/lvl (10->0), Fear rises 1%/lvl (60->70)
-        if scaledDiff <= 10 then
-            attackChance = math.max(0, attackChance - scaledDiff)
-            demoralizeChance = demoralizeChance + scaledDiff
-        else
-            -- Phase 2: Reduce voice chance (Levels +11 to +20)
-            -- Attack is 0. Voice drops 1%/lvl approx (30->20).
-            attackChance = 0
-            local extraLevels = scaledDiff - 10
-            voiceChance = math.max(20, 30 - extraLevels) -- Drop 1% per level past 10
-            demoralizeChance = math.min(80, 70 + extraLevels) -- Rise 1% per level past 10
-        end
-
-    elseif levelDiff < 0 then
-        -- === NPC ADVANTAGE (NPC > Player) ===
-        -- Combat increases 2% per level, Demoralize decreases 2% per level
-        -- Cap: Demoralize hits 0% at +30 levels diff (60 - 30*2 = 0)
-        
-        local absDiff = math.abs(levelDiff)
-        local change = absDiff * 2  -- 2% per level
-        
-        -- Increase Combat
-        attackChance = attackChance + change
-        
-        -- Decrease Demoralize (min 0)
-        demoralizeChance = math.max(0, demoralizeChance - change)
-        
-        -- If demoralize hits 0 (at +30 levels), the rest pours into combat
-        -- Base sum = 10+30+60 = 100
-        -- Example at +30 levels: Change = 60.
-        -- Attack = 10 + 60 = 70.
-        -- Voice = 30 (Constant).
-        -- Demoralize = 60 - 60 = 0.
-        -- Sum = 100. Perfect.
-    end
-
-
-
-    -- Roll dice
-    local roll = math.random(100)
-    log(string.format("[Reaction] LvlDiff: %d (P%d/N%d) | Chances: Atk %.1f / Voice %.1f / Fear %.1f | Roll: %d", 
-        levelDiff, playerLevel, civilianLevel, attackChance, voiceChance, demoralizeChance, roll))
-
-    if roll <= attackChance then
-        log("   -> Decision: COMBAT")
-        npc:sendEvent('StartAIPackage', { type = 'Combat', target = player })
-    elseif roll <= (attackChance + voiceChance) then
-        log("   -> Decision: SCREAM (Voice)")
-        
-        -- Voice Logic
-        local record = types.NPC.record(npc)
-        local played = false
-        if record and bedVoices then
-            local race = record.race:lower():gsub(" ", "")
-            local gender = record.isMale and "male" or "female"
-            
-            local voicesMap = bedVoices[race]
-            if not voicesMap then voicesMap = bedVoices[record.race:lower()] end -- Fallback try without gsub?
-            
-            if voicesMap and voicesMap[gender] then
-                local list = voicesMap[gender]
-                if #list > 0 then
-                    local entry = list[math.random(#list)]
-                    local voicePath = entry.file
-                    if voicePath:find("^Vo/") then voicePath = "sound/" .. voicePath
-                    elseif not voicePath:find("^sound/") then voicePath = "sound/" .. voicePath end
-                    
-                    if npc == self then
-                        -- Local script can only 'say' on its own object
-                        core.sound.say(voicePath, npc, entry.response)
-                    else
-                        -- Remote NPC: Send event to Global to play sound (fallback to 3D sound if 'say' fails or is restricted)
-                        core.sendGlobalEvent('AntiTheft_TriggerVoice', {
-                            npcId = npc.id,
-                            path = voicePath,
-                            text = entry.response,
-                            position = npc.position
-                        })
-                    end
-                    log("[Reaction] Triggered voice:", voicePath)
-                    played = true
-                end
-            end
-        end
-        
-        -- Fallback if no voice found (matches original behavior)
-        if not played then
-            log("[Reaction] No voice found replacement -> COMBAT")
-            npc:sendEvent('StartAIPackage', { type = 'Combat', target = player })
-        end
-    else
-        log("   -> Decision: FLEE (Demoralize)")
-        pcall(function()
-             -- Send Event to the TARGET NPC to modify ITS OWN stats (Local Context)
-             npc:sendEvent('AntiTheft_ApplyFleeStats', { target = player })
-        end)
-    end
-end
 
 
 ----------------------------------------------------------------------
@@ -527,93 +407,16 @@ local stopFn = time.runRepeatedly(function()
                                     -- NPC discovered the body!
                                     log("[ANTI-THEFT] ★★★ BODY DISCOVERED! Witness:", actor.id, "saw unconscious NPC", self.id)
                                 
-                                    -- Apply bounty if player wasn't spotted during the hit (and bounty not yet applied)
-                                    if not wasSpottedDuringHit and player then
-                                        log("[ANTI-THEFT] Crime reported! Applying bounty.")
-                                        -- Pass table with AMOUNT and WITNESS ID
-                                        -- TARGETING PLAYER SCRIPT directly (corrected from Global)
-                                        player:sendEvent("AntiTheft_Relay_SleepBounty", { 
-                                            amount = 300, 
-                                            npcId = actor.id 
-                                        })
-                                        wasSpottedDuringHit = true
-                                    end
+                                    -- Delegate all discovery, bounty, reaction, and alarm logic to Global Script
+                                    core.sendGlobalEvent('AntiTheft_BodyDiscoveryRelay', {
+                                        witnessId = actor.id,
+                                        bodyId = self.id
+                                    })
                                     
-                                    -- Send discovering NPC into action
-                                    if player then
-                                        -- Notify player script to expect combat/arrest from this witness (prevents disband)
-                                        player:sendEvent("AntiTheft_NotifyWitnessAttack", { npcId = actor.id })
-                                        
-                                        if isGuard(actor) then
-                                            log("[ANTI-THEFT] Witness is GUARD - Initiating ARREST (Pursue + ForceDialog)")
-                                            
-                                            -- Revert to 'Pursue' pkg as requested.
-                                            -- Added 0.3s delay to ensure bounty is applied first (Race Condition Fix).
-                                            async:newUnsavableSimulationTimer(0.3, function()
-                                                if actor and actor:isValid() and player then
-                                                    actor:sendEvent('StartAIPackage', {
-                                                        type = 'Pursue',
-                                                        target = player
-                                                    })
-                                                end
-                                            end)
-                                            
-                                            -- Notify player script to monitor distance and force dialogue (Safety Net)
-                                        else
-                                            log("[ANTI-THEFT] Witness is CIVILIAN")
-                                            handleCivilianReaction(actor, player)
-                                        end
-                                        
-                                        -- **chain reaction ALARM**: Witness alerts other nearby NPCs
-                                        -- Radius: Configurable (Default 1000 Int / 3500 Ext)
-                                        local alarmRadius = settings.vars:get('interiorAlarmRadius') or 1000
-                                        if self.cell.isExterior then
-                                            alarmRadius = settings.vars:get('exteriorAlarmRadius') or 3500
-                                        end
-                                        log("[ANTI-THEFT] Witness shouting alarm! Alerting neighbors within " .. alarmRadius .. "u (Exterior: " .. tostring(self.cell.isExterior) .. ")")
-                                        
-                                        for _, neighbor in ipairs(nearby.actors) do
-                                            -- Filter: Must be NPC, Not Witness, Not Victim
-                                            if neighbor.type == types.NPC and neighbor.id ~= actor.id and neighbor.id ~= self.id then
-                                                -- Check distance to WITNESS
-                                                local distToWitness = (neighbor.position - actor.position):length()
-                                                
-                                                if distToWitness <= alarmRadius then
-                                                    -- Ensure neighbor is conscious
-                                                    local isNeighborConscious = not types.Actor.activeSpells(neighbor):isSpellActive(SLEEP_SPELL_ID)
-                                                    
-                                                    if isNeighborConscious then
-                                                        log("[ANTI-THEFT] Neighbor alerted by alarm:", neighbor.id)
-                                                        
-                                                        -- Notify player script (prevent disband) + Expect Arrest if Guard
-                                                        player:sendEvent("AntiTheft_NotifyWitnessAttack", { npcId = neighbor.id })
-                                                        
-                                                        -- Engage Combat or Arrest
-                                                        if isGuard(neighbor) then
-                                                            log("   -> Neighbor is Guard: Arresting (Pursue)")
-                                                            async:newUnsavableSimulationTimer(0.35, function()
-                                                                if neighbor and neighbor:isValid() and player then
-                                                                    neighbor:sendEvent('StartAIPackage', {
-                                                                        type = 'Pursue',
-                                                                        target = player
-                                                                    })
-                                                                end
-                                                            end)
-                                                        else
-                                                            log("   -> Neighbor is Civilian: Reaction")
-                                                            handleCivilianReaction(neighbor, player)
-                                                        end
-                                                    end
-                                                end
-                                            end
-                                        end
-                                    end
-                                
-                                -- Mark as discovered to STOP further scans
-                                wasDiscoveredByOthers = true
-                                
-                                -- Stop checking other NPCs immediately
-                                break
+                                    -- Wait for 0.5s before marking as discovered to allow Global to process
+                                    -- If we mark immediately, we might skip the pulse in Global (though unlikely)
+                                    wasDiscoveredByOthers = true
+                                    break
                             end
                         end
                     end
@@ -1065,14 +868,18 @@ log(debugPrefix .. "Item Scan Complete. Scanned: " .. totalItemsScanned .. " Dra
             if types.NPC.stats.ai.fight(self) then types.NPC.stats.ai.fight(self).base = 0 end
             if types.NPC.stats.ai.flee(self) then types.NPC.stats.ai.flee(self).base = 100 end
             
-            -- 2. Initial Setup: Set Stats Only
+
+            -- 3. Initial Setup: Set Stats Only
             -- Silence/Demoralize/Magicka Drain moved to S3CombatTargetAdded to ensure they persist after combat init
             
-            -- 3. Force Combat to Evaluate new stats
+            -- 4. Force Combat to Evaluate new stats
             self:sendEvent('StartAIPackage', { 
                 type = 'Combat', 
                 target = data and data.target or nil 
             })
+                        -- 2. Force Stance 0 (Nothing/Spell) to prevent weapon drawing during flee
+            types.Actor.setStance(self, types.Actor.STANCE.Nothing)
+            log("[ApplyFleeStats] Forced stance to 0 (Nothing) - NPC will flee without weapon")
             
             -- Debug: Verify stats
             local newFight = types.NPC.stats.ai.fight(self).base

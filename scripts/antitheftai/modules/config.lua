@@ -49,7 +49,7 @@ config.MIN_MOVEMENT_THRESHOLD = 10
 config.LOS_HALF_CONE = math.rad(settings.vars:get('losHalfCone') or 170)
 
 -- Detection range (now configurable via settings)
-config.DETECTION_RANGE = settings.distances:get('detectionRange') or 140.0
+config.DETECTION_RANGE = settings.distances:get('detectionRange') or 175.0
 
 -- Magic (now configurable via settings)
 config.EFFECT_INVIS = "invisibility"
@@ -64,11 +64,12 @@ config.NPC_WALK_SPEED = 40 -- do not change unless you want the guard return scr
 config.MIN_WANDER_DELAY = settings.timing:get('minWanderDelay') or 10.0
 config.MAX_WANDER_DELAY = settings.timing:get('maxWanderDelay') or 15.0
 config.FIXED_SEARCH_TIME = settings.timing:get('fixedSearchTime') or 0.0
-config.DISABLE_HELLO_WHILE_FOLLOWING = settings.vars:get('disableHelloWhileFollowing') or true
+config.DISABLE_HELLO_WHILE_FOLLOWING = settings.general:get('disableHelloWhileFollowing')
+if config.DISABLE_HELLO_WHILE_FOLLOWING == nil then config.DISABLE_HELLO_WHILE_FOLLOWING = true end
 config.DISPOSITION_FOLLOWING_IGNORE = settings.vars:get('dispositionFollowingIgnore') or 100
 config.SIMULATED_TRAVEL_SPEED = settings.vars:get('simulatedTravelSpeed') or 300.0
 
--- Messages
+-- Messages (fallback messages if files/settings are not loaded)
 config.invisRemovalMessages = {
     "There you are, scum!",
     "Got you, thief",

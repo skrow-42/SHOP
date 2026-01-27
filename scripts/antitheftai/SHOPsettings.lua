@@ -46,7 +46,7 @@ if I.Settings and I.Settings.registerPage then
         l10n             = PAGE_KEY,
         page             = PAGE_KEY,
         name             = 'General',
-        permanentStorage = false,
+        permanentStorage = true,  -- Changed to true to persist settings across game loads
         settings = {
             {
                 key         = 'enableLogging',
@@ -70,11 +70,11 @@ if I.Settings and I.Settings.registerPage then
                 default     = false,
             },
             {
-                key = 'enableBedDetection',
-                renderer = 'checkbox',
-                name = 'Enable Bedroom Detection',
+                key         = 'enableBedDetection',
+                renderer    = 'checkbox',
+                name        = 'Enable Bedroom Detection',
                 description = 'If enabled, NPCs will react to the player going into their quarters.',
-                default = true,
+                default     = true,
             },
             {
                 key         = 'enableDoorMechanics',
@@ -105,8 +105,15 @@ if I.Settings and I.Settings.registerPage then
             {
                 key         = 'enableBlackjackSpawning',
                 renderer    = 'checkbox',
-                name        = 'Enable Blackjack Script',
-                description = 'Enable Blackjack Sleep script and associated items (1% loot chance, TG Merchants Added).',
+                name        = 'Enable Blackjack & Keylock Script',
+                description = 'Enable distribution of Blackjacks and Keylocks to TG merchants and random loot (1% chance).',
+                default     = true,
+            },
+            {
+                key         = 'disableHelloWhileFollowing',
+                renderer    = 'checkbox',
+                name        = 'Disable Hello While Following',
+                description = 'Set Hello value to 0 while guard is following the player (restores default upon disbanding).',
                 default     = true,
             },
         },
@@ -118,7 +125,7 @@ if I.Settings and I.Settings.registerPage then
         l10n             = PAGE_KEY,
         page             = PAGE_KEY,
         name             = 'Variables',
-        permanentStorage = false,
+        permanentStorage = true,
         settings = {
             {
                 key         = 'factionIgnoreRank',
@@ -149,13 +156,6 @@ if I.Settings and I.Settings.registerPage then
                 min         = 1,
                 max         = 100,
                 step        = 1,
-            },
-            {
-                key         = 'disableHelloWhileFollowing',
-                renderer    = 'checkbox',
-                name        = 'Disable Hello While Following',
-                description = 'Set Hello value to 0 while guard is following the player (restores default upon disbanding).',
-                default     = true,
             },
             {
                 key         = 'dispositionChange',
@@ -224,7 +224,7 @@ if I.Settings and I.Settings.registerPage then
         l10n             = PAGE_KEY,
         page             = PAGE_KEY,
         name             = 'Timing',
-        permanentStorage = false,
+        permanentStorage = true,
         settings = {
             {
                 key         = 'enterDelay',
@@ -335,7 +335,7 @@ if I.Settings and I.Settings.registerPage then
         l10n             = PAGE_KEY,
         page             = PAGE_KEY,
         name             = 'Distances',
-        permanentStorage = false,
+        permanentStorage = true,
         settings = {
             {
                 key         = 'searchWDist',
@@ -391,9 +391,9 @@ if I.Settings and I.Settings.registerPage then
                 key         = 'detectionRange',
                 renderer    = 'number',
                 name        = 'Detection Range',
-                description = 'Maximum distance for NPC to detect the player.',
-                default     = 125.0,
-                min         = 1.0,
+                description = 'NPC detection range for invisibility and chameleon removal.',
+                default     = 175.0,
+                min         = 50,
                 max         = 500.0,
                 step        = 1.0,
             },
@@ -406,7 +406,7 @@ if I.Settings and I.Settings.registerPage then
         l10n             = PAGE_KEY,
         page             = PAGE_KEY,
         name             = 'Compatibility',
-        permanentStorage = false,
+        permanentStorage = true,
         settings = {
             {
                 key         = 'enableErnBurglarySpotted',
@@ -432,7 +432,7 @@ if I.Settings and I.Settings.registerPage then
         l10n             = PAGE_KEY,
         page             = PAGE_KEY,
         name             = 'Bounties',
-        permanentStorage = false,
+        permanentStorage = true,
         settings = {
             {
                 key         = 'lockingDoorBounty',

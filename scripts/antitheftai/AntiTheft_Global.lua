@@ -34,12 +34,15 @@ local classification = require('scripts.antitheftai.modules.npc_classification')
 local companionDetection = require('scripts.antitheftai.modules.companion_detection')
 local bedVoices = require('scripts.antitheftai.modules.bed_voices')
 local config = require('scripts.antitheftai.modules.config')
+local utils = require('scripts.antitheftai.modules.utils')
 -- local cache, used by your log() helper
 local _enableGlobalDebug = settings:get('enableGlobalDebug')
 local _enableLogging = settings:get('enableLogging')
 if _enableLogging == nil then _enableLogging = true end
 local _enableDoorMechanics = settings:get('enableDoorMechanics')
 if _enableDoorMechanics == nil then _enableDoorMechanics = true end
+local _enableBedDetection = settings:get('enableBedDetection')
+if _enableBedDetection == nil then _enableBedDetection = true end
 
 local function log(...)
     if not _enableLogging or not _enableGlobalDebug then return end
@@ -68,6 +71,8 @@ local function onUpdateSetting(data)
         _enableLogging = data.value
     elseif data.key == 'enableDoorMechanics' then
         _enableDoorMechanics = data.value
+    elseif data.key == 'enableBedDetection' then
+        _enableBedDetection = data.value
     end
     log('Setting', data.key, 'changed to', tostring(data.value))
 end
@@ -96,6 +101,14 @@ local doorLastLockLevels = {}  -- Track last lock levels for doors (doorId -> lo
 local doorLockCheckDelay = 0  -- Manual delay timer for door lock checks in global script
 local doorInvestigation = {}  -- Track NPCs investigating doors (npcId -> {doorPosition, startTime, lastLog})
 local followingNPCs = {}  -- Track NPCs currently following the player (npcId -> true)
+
+local KEYLOCK_RANGES = {
+    ['keylock-iron']     = {min = 1,  max = 25},
+    ['keylock-imperial'] = {min = 26, max = 50},
+    ['keylock-dwemer']   = {min = 51, max = 75},
+    ['keylock-master']   = {min = 76, max = 99},
+    ['keylock-skeleton'] = {min = 100, max = 100}
+}
 
 -- Local cache for NPC race/gender data (fetched once and reused)
 local npcRaceGenderCache = {}
@@ -128,7 +141,6 @@ end
 ----------------------------------------------------------------------
 
 -- Check if an activator is a bed
--- Check if an activator is a bed
 local function isBed(object)
     if not object or object.type ~= types.Activator then
         return false
@@ -141,33 +153,35 @@ local function isBed(object)
     local record = types.Activator.record(recordId)
     if not record then return false end
     
-    -- Robust check: Name or Model contains keywords
-    local name = record.name and record.name:lower() or ""
-    local model = record.model and record.model:lower() or ""
-    
-    if name:find("bed") then
+    -- Only match beds with display name exactly "Bed"
+    local name = record.name or ""
+    if name == "Bed" then
         return true
     end
     
-    if model:find("bed") then
-        return true 
-    end
-    
     return false
-    
-    
 end
 
 -- Find all beds in a cell and cache their positions
--- Find all beds in a cell and cache their positions
+local bedScanCache = {} -- Cache bed scans per cell
+
 local function scanBedsInCell(cell)
     if not cell or cell.isExterior then
         return {}
     end
     
+    local cellName = cell.name or ""
+    
+    -- Return cached result if available
+    if bedScanCache[cellName] then
+        log("[BED SCAN GLOBAL] Using cached bed scan for cell", cellName)
+        return bedScanCache[cellName]
+    end
+    
     -- Check if cell is disabled via configuration
     if classification.isCellDisabled(cell, config.DISABLED_CELL_NAMES) then
-        log("[BED SCAN GLOBAL] Cell", cell.name, "is disabled in config - skipping bed scan")
+        log("[BED SCAN GLOBAL] Cell", cellName, "is disabled in config - skipping bed scan")
+        bedScanCache[cellName] = {}
         return {}
     end
 
@@ -177,19 +191,22 @@ local function scanBedsInCell(cell)
 
     -- Check for "Slaves and Enemies" condition
     if classification.shouldDisableCellForSlavesAndEnemies(nearbyContext, types) then
-        log("[BED SCAN GLOBAL] Cell", cell.name, "contains Slaves and Enemies - skipping bed scan")
+        log("[BED SCAN GLOBAL] Cell", cellName, "contains Slaves and Enemies - skipping bed scan")
+        bedScanCache[cellName] = {}
         return {}
     end
 
     -- Check for "Only Enemies" condition
     if classification.shouldDisableCellForOnlyEnemies(nearbyContext, types) then
-        log("[BED SCAN GLOBAL] Cell", cell.name, "contains Only Enemies - skipping bed scan")
+        log("[BED SCAN GLOBAL] Cell", cellName, "contains Only Enemies - skipping bed scan")
+        bedScanCache[cellName] = {}
         return {}
     end
 
     -- Check for "Publican" condition
     if classification.shouldDisableCellForPublican(nearbyContext, types) then
-        log("[BED SCAN GLOBAL] Cell", cell.name, "contains a Publican - skipping bed scan")
+        log("[BED SCAN GLOBAL] Cell", cellName, "contains a Publican - skipping bed scan")
+        bedScanCache[cellName] = {}
         return {}
     end
 
@@ -205,6 +222,7 @@ local function scanBedsInCell(cell)
                 if pf.factionId == cellFaction then
                     if pf.rank >= rankThreshold then
                         log("[BED SCAN GLOBAL] Player rank", pf.rank, "in faction", cellFaction, ">= threshold", rankThreshold, "- skipping bed scan")
+                        bedScanCache[cellName] = {}
                         return {}
                     end
                     break 
@@ -213,22 +231,23 @@ local function scanBedsInCell(cell)
         end
     end
     
-    log("[BED SCAN GLOBAL] Starting scan, cell name:", cell.name)
+    log("[BED SCAN GLOBAL] Starting scan, cell name:", cellName)
     local bedPositions = {}
     local bedCount = 0
     
     for _, object in pairs(cell:getAll(types.Activator)) do
-        -- log("[GLOBAL BED DEBUG] Checking activator:", object.recordId)
         if isBed(object) then
             table.insert(bedPositions, object.position)
             bedCount = bedCount + 1
-            -- log("[GLOBAL BED DEBUG] Found bed:", object.recordId, "at position:", object.position)
             log("[BED SCAN GLOBAL] Found bed:", object.recordId, "at position:", object.position)
         end
     end
     
-    -- log("[GLOBAL BED DEBUG] Scan complete. Found", bedCount, "beds")
-    log("[BED SCAN GLOBAL] Found", bedCount, "beds in cell", cell.name or "unknown")
+    log("[BED SCAN GLOBAL] Found", bedCount, "beds in cell", cellName)
+    
+    -- Cache the result
+    bedScanCache[cellName] = bedPositions
+    
     return bedPositions
 end
 
@@ -252,9 +271,10 @@ local unconsciousNPCStates = {}    -- npcId -> {wasSpotted = bool}
 local bodyDiscoveries = {}         -- discovererNpcId -> {unconsciousNpcId -> true}
 
 -- Constants
-local PULSE_RANGE = 800
+local PULSE_RANGE_INTERIOR = 1000
+local PULSE_RANGE_EXTERIOR = 2500
 local PULSE_INTERVAL = 1.0
-local DISCOVERY_BOUNTY_VALUE = 99  -- 200 gold bounty
+local DISCOVERY_BOUNTY_VALUE = 99  -- Trigger for stun bounty
 
 -- Helper function to check if NPC is unconscious
 local function isNPCUnconscious(npc)
@@ -283,6 +303,185 @@ local function isNPCUnconscious(npc)
     return false
 end
 
+-- Helper: Civilian Reaction Logic (Level Scaling + Demoralize)
+local function handleCivilianReaction(npc, player)
+    if not npc or not player then return end
+
+    -- Calculate level-based probabilities
+    local playerLevel = types.Actor.stats.level(player).current
+    local civilianLevel = types.Actor.stats.level(npc).current
+    local levelDiff = playerLevel - civilianLevel
+
+    -- Base chances (Phase 0 - Equal Level)
+    local attackChance = 10
+    local voiceChance = 30
+    local demoralizeChance = 60
+
+    -- Apply level scaling
+    if levelDiff > 0 then
+        -- === PLAYER ADVANTAGE (Player > NPC) ===
+        local scaledDiff = math.min(levelDiff, 20)
+        if scaledDiff <= 10 then
+            attackChance = math.max(0, attackChance - scaledDiff)
+            demoralizeChance = demoralizeChance + scaledDiff
+        else
+            attackChance = 0
+            local extraLevels = scaledDiff - 10
+            voiceChance = math.max(20, 30 - extraLevels)
+            demoralizeChance = math.min(80, 70 + extraLevels)
+        end
+    elseif levelDiff < 0 then
+        -- === NPC ADVANTAGE (NPC > Player) ===
+        local absDiff = math.abs(levelDiff)
+        local change = absDiff * 2
+        attackChance = attackChance + change
+        demoralizeChance = math.max(0, demoralizeChance - change)
+        -- Cap: Max 70% Combat, min 0% Flee
+        if attackChance > 70 then attackChance = 70 end
+    end
+
+    local roll = math.random(100)
+    log(string.format("[Reaction] NPC %s: Roll %d vs (Atk %.1f / Voice %.1f / Flee %.1f)", npc.id, roll, attackChance, voiceChance, demoralizeChance))
+
+    if roll <= attackChance then
+        npc:sendEvent('StartAIPackage', { type = 'Combat', target = player })
+    elseif roll <= (attackChance + voiceChance) then
+        -- Voice logic - Play a scream/alarm
+        local record = types.NPC.record(npc)
+        if record and bedVoices then
+            local raceKey = record.race:lower():gsub(" ", "")
+            local gender = record.isMale and "male" or "female"
+            local voices = (bedVoices[raceKey] and bedVoices[raceKey][gender]) or (bedVoices[record.race:lower()] and bedVoices[record.race:lower()][gender])
+            
+            if voices and #voices > 0 then
+                local entry = voices[math.random(#voices)]
+                local voicePath = entry.file
+                if not voicePath:find("^sound/") then voicePath = "sound/" .. voicePath:gsub("^Vo/", "vo/") end
+                core.sound.say(voicePath, npc, entry.response)
+            else
+                -- Fallback to combat if no voice
+                npc:sendEvent('StartAIPackage', { type = 'Combat', target = player })
+            end
+        end
+    else
+        -- Flee logic - Delegate to local script
+        npc:sendEvent('AntiTheft_ApplyFleeStats', { target = player })
+    end
+end
+
+-- Helper: Chain Reaction Alarm
+local function triggerAlarmChain(actor, player)
+    local isExt = actor.cell.isExterior
+    local alarmRadius = isExt and 2500 or 1000
+    log("[ALARM] Witness %s shouting alarm! Radius: %d", actor.id, alarmRadius)
+    
+    for _, neighbor in ipairs(world.activeActors) do
+        if neighbor.type == types.NPC and neighbor.id ~= actor.id and not isNPCUnconscious(neighbor) then
+            -- Allow crossing cell boundaries in exteriors
+            if neighbor.cell.isExterior == isExt then
+                local dist = (neighbor.position - actor.position):length()
+                if dist <= alarmRadius then
+                    log("[ALARM] Neighbor alerted: %s", neighbor.id)
+                    
+                    -- Notify player to expect combat/pursuit (prevents disband)
+                    player:sendEvent('AntiTheft_NotifyWitnessAttack', { npcId = neighbor.id })
+                    
+                    if utils.isGuard(neighbor, types) then
+                        neighbor:sendEvent('StartAIPackage', { type = 'Pursue', target = player })
+                    else
+                        handleCivilianReaction(neighbor, player)
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- Helper function to handle the actual discovery logic after LoS is confirmed
+local function handleBodyDiscovery(consciousNpc, unconsciousNpc, unconsciousNpcId)
+    local consciousId = consciousNpc.id
+    local player = world.players[1]
+    
+    log("[PULSE] Conscious NPC", consciousId, "detected unconscious NPC", unconsciousNpcId)
+    
+    -- Mark discovery
+    if not bodyDiscoveries[consciousId] then
+        bodyDiscoveries[consciousId] = {}
+    end
+    bodyDiscoveries[consciousId][unconsciousNpcId] = true
+    
+    -- Notify the unconscious NPC that they were discovered
+    unconsciousNpc:sendEvent('AntiTheft_BodyDiscovered', {
+        npcId = unconsciousNpcId,
+        discovererNpcId = consciousId
+    })
+    
+    -- Check if bounty was already applied during blackjack hit
+    local npcState = unconsciousNPCStates[unconsciousNpcId]
+    if npcState and not npcState.wasSpotted then
+        log("[PULSE] Applying gold bounty for body discovery")
+        core.sendGlobalEvent("detdGlobalCheckSleep", DISCOVERY_BOUNTY_VALUE)
+        npcState.wasSpotted = true
+    end
+    
+    -- Conditional Reaction: Only react if player is visible to the witness
+    local isExt = consciousNpc.cell.isExterior
+    local canSeePlayer = false
+    if player and player.cell.isExterior == isExt then
+        if world.castRay then
+            -- Check LoS to player (Eye level to Eye level roughly)
+            local observerPos = consciousNpc.position + util.vector3(0, 0, 90)
+            local playerPos = player.position + util.vector3(0, 0, 90)
+            local ray = world.castRay(observerPos, playerPos, {collisionType = 3, ignore = {consciousNpc}})
+            if not ray or not ray.hit or (ray.hitObject and ray.hitObject.id == player.id) then
+                canSeePlayer = true
+            end
+        else
+            -- If castRay missing, assume visible if within reasonable range (800)
+            canSeePlayer = (consciousNpc.position - player.position):length() <= 800
+        end
+    end
+
+    if canSeePlayer then
+        log("[PULSE] Witness %s sees player - Triggering criminal response", consciousId)
+        
+        -- Notify player to expect attack (important for disband logic)
+        player:sendEvent('AntiTheft_NotifyWitnessAttack', { npcId = consciousId })
+        
+        if utils.isGuard(consciousNpc, types) then
+            consciousNpc:sendEvent('StartAIPackage', { type = 'Pursue', target = player })
+        else
+            handleCivilianReaction(consciousNpc, player)
+        end
+    else
+        log("[PULSE] Witness %s sees body but NOT player - Dispatching closest guard to investigate", consciousId)
+        local closestGuard = nil
+        local minDist = math.huge
+        for _, actor in ipairs(world.activeActors) do
+            if actor.type == types.NPC and utils.isGuard(actor, types) and not isNPCUnconscious(actor) and actor.cell.isExterior == isExt then
+                local d = (actor.position - consciousNpc.position):length()
+                if d < minDist then
+                    minDist = d
+                    closestGuard = actor
+                end
+            end
+        end
+        
+        if closestGuard then
+            log("[PULSE] Sending guard %s to investigate witness position for NPC %s", closestGuard.id, consciousId)
+            closestGuard:sendEvent('RemoveAIPackages')
+            closestGuard:sendEvent('StartAIPackage', {
+                type = 'Travel',
+                destPosition = consciousNpc.position,
+                cancelOther = true
+            })
+        end
+    end
+    
+    -- Spread the alarm regardless (everyone shouts help if a body is found)
+    triggerAlarmChain(consciousNpc, player)
+end
+
 -- Pulse emission function - scans for nearby conscious NPCs and alerts them
 local function emitDetectionPulse(unconsciousNpc, unconsciousNpcId)
     if not (unconsciousNpc and unconsciousNpc:isValid()) then
@@ -303,7 +502,8 @@ local function emitDetectionPulse(unconsciousNpc, unconsciousNpcId)
         return
     end
     
-    log("[PULSE] NPC", unconsciousNpcId, "emitting 800-unit detection pulse...")
+    local pulseRange = unconsciousNpc.cell.isExterior and PULSE_RANGE_EXTERIOR or PULSE_RANGE_INTERIOR
+    log("[PULSE] NPC", unconsciousNpcId, "emitting " .. pulseRange .. "-unit detection pulse...")
     
     local unconsciousPos = unconsciousNpc.position
     local player = world.players[1]
@@ -322,56 +522,30 @@ local function emitDetectionPulse(unconsciousNpc, unconsciousNpcId)
                 -- Calculate distance
                 local dist = (consciousNpc.position - unconsciousPos):length()
                 
-                if dist <= PULSE_RANGE then
-                    -- Check line of sight
-                    local rayResult = world.castRay(consciousNpc.position, unconsciousPos)
-                    
-                    -- If rayResult is nil or didn't hit anything, LoS is clear
-                    if not rayResult or not rayResult.hit then
-                        log("[PULSE] Conscious NPC", consciousId, "detected unconscious NPC", unconsciousNpcId, "at", math.floor(dist), "units (LoS clear)")
-                        
-                        -- Mark discovery
-                        if not bodyDiscoveries[consciousId] then
-                            bodyDiscoveries[consciousId] = {}
-                        end
-                        bodyDiscoveries[consciousId][unconsciousNpcId] = true
-                        
-                        -- Notify the unconscious NPC that they were discovered
-                        -- This prevents them from becoming a witness when they wake up
-                        unconsciousNpc:sendEvent('AntiTheft_BodyDiscovered', {
-                            npcId = unconsciousNpcId,
-                            npcId = unconsciousNpcId,
-                            discovererNpcId = consciousId
-                        })
-                        log("[PULSE] Notified unconscious NPC", unconsciousNpcId, "of discovery")
-                        
-                        -- Check if bounty was already applied during blackjack hit
-                        local npcState = unconsciousNPCStates[unconsciousNpcId]
-                        if npcState and not npcState.wasSpotted then
-                            -- Player was NOT spotted during hit - apply bounty now
-                            log("[PULSE] Applying 200 gold bounty for body discovery")
-                            core.sendGlobalEvent("detdGlobalCheckSleep", DISCOVERY_BOUNTY_VALUE)
-                            
-                            -- Mark bounty as applied to prevent duplicates
-                            npcState.wasSpotted = true
+                if dist <= pulseRange then
+                    -- Check if world.castRay is available (OpenMW 0.49+)
+                    if world.castRay then
+                        local rayResult = world.castRay(consciousNpc.position, unconsciousPos)
+                        if not rayResult or not rayResult.hit then
+                            log("[PULSE] Conscious NPC", consciousId, "detected unconscious NPC", unconsciousNpcId, "at", math.floor(dist), "units (LoS clear via world.castRay)")
+                            handleBodyDiscovery(consciousNpc, unconsciousNpc, unconsciousNpcId)
+                            break
                         else
-                            log("[PULSE] Bounty already applied or player was spotted during hit")
+                            log("[PULSE] NPC", consciousId, "at", math.floor(dist), "units but LoS blocked")
                         end
-                        
-                        -- Send conscious NPC into combat with player
-                        if player then
-                            consciousNpc:sendEvent('StartAIPackage', {
-                                type = 'Combat',
-                                type = 'Combat',
-                                target = player
-                            })
-                            log("[PULSE] Conscious NPC", consciousId, "engaging in combat with player")
-                        end
-                        
-                        -- Only process one discovery per pulse
-                        break
                     else
-                        log("[PULSE] NPC", consciousId, "at", math.floor(dist), "units but LoS blocked")
+                        -- API missing (Older versions or Engine limit) - delegate to player script
+                        log("[PULSE] world.castRay missing - delegating LoS check to player script for NPC", consciousId)
+                        if player then
+                            player:sendEvent('AntiTheft_RequestBodyLOSCheck', {
+                                witnessId = consciousId,
+                                bodyId = unconsciousNpcId,
+                                bodyPos = unconsciousPos,
+                                witnessPos = consciousNpc.position
+                            })
+                            -- Only delegate one check per pulse to prevent flooding
+                            break
+                        end
                     end
                 end
             end
@@ -1250,6 +1424,35 @@ local function onLowerCellDisposition(data)
 
     log("  Processed", count, "NPCs in cell")
     log("=== CELL DISPOSITION LOWERING COMPLETE ===")
+end
+
+local function onLowerNPCDisposition(data)
+    if not data or not data.npcId then return end
+    log("=== GLOBAL: LOWERING SPECIFIC NPC DISPOSITION (NPC:", data.npcId, ") ===")
+    
+    local player = world.players[1]
+    if not player then return end
+
+    local dispositionChange = vars:get('dispositionChange') or 15
+    local npc = nil
+    
+    -- Find actor by ID across all active actors
+    for _, actor in ipairs(world.activeActors) do
+        if actor.id == data.npcId then
+            npc = actor
+            break
+        end
+    end
+
+    if npc and npc:isValid() and npc.type == types.NPC then
+        local currentDisp = types.NPC.getBaseDisposition(npc, player) or 50
+        local newDisp = math.max(0, currentDisp - dispositionChange)
+        log("  Lowering NPC", npc.id, "base disposition:", currentDisp, "->", newDisp)
+        types.NPC.modifyBaseDisposition(npc, player, -dispositionChange)
+    else
+        log("  NPC", data.npcId, "not found or invalid for disposition lowering")
+    end
+    log("=== NPC DISPOSITION LOWERING COMPLETE ===")
 end
 
 local npcVoiceResponses = {
@@ -2921,6 +3124,8 @@ return {
         AntiTheft_TeleportHome = onTeleportHome,
         AntiTheft_RequestCleanup = onRequestCleanup,
         AntiTheft_LowerCellDisposition = onLowerCellDisposition,
+        AntiTheft_LowerNPCDisposition = onLowerNPCDisposition,
+        AntiTheft_RefundKeylock = onRefundKeylock,
         AntiTheft_StartSearchTimer = onStartSearchTimer,
         AntiTheft_ApplyLockSpellBounty = onApplyLockSpellBounty,
         AntiTheft_DoorDetection = onDoorDetection,
@@ -2974,13 +3179,16 @@ return {
                 
                 -- Construct voice path (using existing module logic would be best, but we'll inline a simple lookup or call helper)
                 
-                if not bedVoiceState[npc.id] then bedVoiceState[npc.id] = {firstFired=false, secondFired=false, lastCheck=0} end
+                if not bedVoiceState[npc.id] then bedVoiceState[npc.id] = {firstFired=false, secondFired=false, attackFired=false, lastCheck=0} end
                 local state = bedVoiceState[npc.id]
                 
                 -- Reset state if stale (> 60s)
                 if core.getSimulationTime() - state.lastCheck > 60 then
                     state.firstFired = false
                     state.secondFired = false
+                    state.attackFired = false
+                    state.firstWarningTime = nil
+                    state.secondWarningTime = nil
                 end
                 state.lastCheck = core.getSimulationTime()
                 
@@ -3013,9 +3221,7 @@ return {
                      log("[BED REACTION] First warning given - NO COMBAT yet.")
                      
                 elseif not state.secondFired then
-                    -- Second Warning / Attack Checking
-                    -- Per User Request: Attack only after 30 seconds of remaining in the area
-                    
+                    -- Second Warning
                     if not state.firstWarningTime then
                          state.firstWarningTime = core.getSimulationTime()
                     end
@@ -3024,7 +3230,7 @@ return {
                     log("[BED REACTION] Time in violation:", string.format("%.1f", timeInViolation), "seconds")
                     
                     if timeInViolation > 30 then
-                        -- 30 seconds passed - EXECUTE ATTACK
+                        -- 30 seconds passed - PLAY SECOND WARNING
                         local bedVoices = require('scripts.antitheftai.modules.bed_voices')
                         local voices = nil
                         if bedVoices[race] then voices = bedVoices[race][gender]
@@ -3033,16 +3239,43 @@ return {
                          if voices and #voices > 0 then
                             local voice = voices[math.random(#voices)]
                             core.sound.say(voice.file, npc, voice.response)
-                            log("[BED REACTION] Played SECOND warning voice / ATTACK")
+                            onLowerCellDisposition({cellName = player.cell.name})
+                            log("[BED REACTION] Played SECOND warning voice")
                         end
                         
-                        -- ATTACK
-                        npc:sendEvent('StartAIPackage', {type='Combat', target=world.players[1]})
                         state.secondFired = true
+                        state.secondWarningTime = core.getSimulationTime()
+                        log("[BED REACTION] Second warning given - 30s grace period starting before attack.")
                     else
                          -- Still in grace period
-                         log("[BED REACTION] Player in bed area for < 30s (" .. string.format("%.1f", timeInViolation) .. "). Holding fire.")
+                         log("[BED REACTION] Player in bed area for < 30s (" .. string.format("%.1f", timeInViolation) .. "). Waiting to play second warning.")
                     end
+                elseif not state.attackFired then
+                    -- Attack Phase (30s after second warning)
+                    local timeSinceSecondWarning = core.getSimulationTime() - state.secondWarningTime
+                    log("[BED REACTION] Time since second warning:", string.format("%.1f", timeSinceSecondWarning), "seconds")
+                    
+                    if timeSinceSecondWarning > 30 then
+                        log("[BED REACTION] 30 seconds passed since second warning - EXECUTING ATTACK")
+                        npc:sendEvent('StartAIPackage', {type='Combat', target=world.players[1]})
+                        state.attackFired = true
+                    else
+                        log("[BED REACTION] Player still in area after second warning. Attacking in " .. string.format("%.1f", 30 - timeSinceSecondWarning) .. "s")
+                    end
+                end
+            end
+        end,
+        AntiTheft_BodyDiscoveryConfirmed = function(data)
+            if not data or not data.witnessId or not data.bodyId then return end
+            
+            local witness = findNPC(data.witnessId)
+            local body = findNPC(data.bodyId)
+            
+            if witness and witness:isValid() and body and body:isValid() then
+                log("[PULSE] Discovery confirmed via player LoS check for witness", data.witnessId)
+                -- Check if this NPC already discovered this body (prevent race conditions)
+                if not (bodyDiscoveries[data.witnessId] and bodyDiscoveries[data.witnessId][data.bodyId]) then
+                    handleBodyDiscovery(witness, body, data.bodyId)
                 end
             end
         end,
@@ -3057,7 +3290,34 @@ return {
         AntiTheft_NPCUnconscious = onNPCUnconscious,
         AntiTheft_NPCConscious = onNPCConscious,
         AntiTheft_StopWakeUpWander = onStopWakeUpWander,
-        AntiTheft_PlayCivilianUnlockSound = onPlayCivilianUnlockSound, -- NEW handler
+        AntiTheft_PlayCivilianUnlockSound = onPlayCivilianUnlockSound,
+        AntiTheft_HandleCivilianReaction = function(data)
+            if data and data.npcId then
+                local npc = findNPC(data.npcId)
+                local player = world.players[1]
+                if npc and player then
+                    handleCivilianReaction(npc, player)
+                end
+            end
+        end,
+        AntiTheft_AlarmOthers = function(data)
+            if data and data.npcId then
+                local witness = findNPC(data.npcId)
+                local player = world.players[1]
+                if witness and player then
+                    triggerAlarmChain(witness, player)
+                end
+            end
+        end,
+        AntiTheft_BodyDiscoveryRelay = function(data)
+            if data and data.witnessId and data.bodyId then
+                local witness = findNPC(data.witnessId)
+                local body = findNPC(data.bodyId)
+                if witness and body then
+                    handleBodyDiscovery(witness, body, data.bodyId)
+                end
+            end
+        end,
         S3CombatTargetAdded = function(data)
             if data and data.id then
                 npcsInCombatWithPlayer[data.id] = true
@@ -3458,6 +3718,157 @@ return {
         detdGlobalCheckSleep = onSleepCheck,
         AntiTheft_Relay_NPCUnconscious = onNPCUnconscious,
         AntiTheft_NPCConscious = onNPCConscious,
+        AntiTheft_HandleKeylockOutcome = function(data)
+            if not data or (not data.door and not data.doorId) or data.success == nil or not data.keylockId or not data.damagePerUse then return end
+            
+            local player = world.players[1]
+            if not player or not player.cell then return end
+            
+            log("[GLOBAL KEYLOCK] Outcome handler triggered - Success:", data.success, "Keylock:", data.keylockId)
+            
+            -- Find the door object (prefer data.door if passed as object)
+            local door = data.door
+            if not door or not door:isValid() then
+                -- Fallback to search by ID
+                for _, obj in pairs(player.cell:getAll(types.Door)) do
+                    if obj.id == data.doorId then
+                        door = obj
+                        break
+                    end
+                end
+                
+                -- Global search if still not found
+                if not door then
+                    for _, cell in pairs(world.cells) do
+                        for _, obj in pairs(cell:getAll(types.Door)) do
+                            if obj.id == data.doorId then
+                                door = obj
+                                break
+                            end
+                        end
+                        if door then break end
+                    end
+                end
+            end
+            
+            if not door or not door:isValid() then
+                log("[GLOBAL KEYLOCK] Error: Door object not found or invalid")
+                return
+            end
+            
+            -- 1. Handle Success Actions (Locking & Sound)
+            if data.success then
+                -- Calculate lock level based on keylock type and player Security skill
+                local securitySkill = types.NPC.stats.skills.security(player).modified
+                local rangeInfo = KEYLOCK_RANGES[data.keylockId:lower()]
+                local lockLevel = 50 -- Fallback
+                
+                if rangeInfo then
+                    local range = rangeInfo.max - rangeInfo.min
+                    local skillFactor = math.min(1.0, securitySkill / 100)
+                    lockLevel = math.floor(rangeInfo.min + (range * skillFactor))
+                end
+                
+                local initialLockLevel = types.Lockable.getLockLevel(door)
+                local initialIsLocked = types.Lockable.isLocked(door)
+                local doorState = types.Door.getDoorState(door)
+                
+                log("[GLOBAL KEYLOCK] Attempting to lock door. Initial Level:", initialLockLevel, "Locked:", initialIsLocked, "State:", doorState)
+                
+                -- SUCCESS FIX: Use the combined lock(door, level) API as requested
+                types.Lockable.lock(door, lockLevel)
+                
+                local finalLockLevel = types.Lockable.getLockLevel(door)
+                local finalIsLocked = types.Lockable.isLocked(door)
+                
+                log("[GLOBAL KEYLOCK] SetLockLevel Result -> Final Level:", finalLockLevel, "Locked:", finalIsLocked)
+                
+                if finalLockLevel ~= lockLevel then
+                    log("[GLOBAL KEYLOCK] WARNING: Lock level did not match expected value! Engine may have rejected it.")
+                end
+                
+                log("[GLOBAL KEYLOCK] Success! Door locked to level", lockLevel, "(Security:", securitySkill, ")")
+                
+                -- Play 3D success sound at door position
+                local successSounds = {
+                    "sound/lock/lock1.mp3",
+                    "sound/lock/lock2.mp3",
+                    "sound/lock/lock3.mp3"
+                }
+                local soundFile = successSounds[math.random(#successSounds)]
+                core.sound.playSoundFile3d(soundFile, door, {volume = 20.0, pitch = 0.9 + math.random() * 0.2, loop = false})
+                log("[GLOBAL KEYLOCK] Playing 3D success sound:", soundFile, "at door")
+            else
+                -- Play 3D failure sound at door position
+                core.sound.playSoundFile3d("sound/Fx/trans/lever.wav", door, {volume = 20.0, pitch = 0.9 + math.random() * 0.2, loop = false})
+                log("[GLOBAL KEYLOCK] Playing 3D failure sound: sound/Fx/trans/lever.wav at door")
+            end
+            
+            -- 2. Handle Item Damage
+            local equipment = types.Actor.getEquipment(player)
+            local equippedItem = equipment[types.Actor.EQUIPMENT_SLOT.CarriedRight]
+            
+            -- Verify it's the correct item
+            if equippedItem and equippedItem.recordId:lower() == data.keylockId:lower() then
+                local itemData = types.Item.itemData(equippedItem)
+                if itemData then
+                    local currentCondition = itemData.condition
+                    local newCondition = math.max(0, currentCondition - data.damagePerUse)
+                    itemData.condition = newCondition
+                    log("[GLOBAL KEYLOCK] Item damaged: condition", currentCondition, "->", newCondition)
+                    
+                    if newCondition <= 0 then
+                        log("[GLOBAL KEYLOCK] Item broken - removing from inventory")
+                        equippedItem:remove()
+                        player:sendEvent('AntiTheft_ShowMessage', { text = "Your keylock has broken!" })
+                    end
+                end
+            end
+        end,
+        
+        AntiTheft_PlayDetectionVoice = function(data)
+            if not data or not data.npcId then return end
+            local npc = findNPC(data.npcId)
+            if npc and npc:isValid() then
+                playNpcVoiceResponse(npc)
+            end
+        end,
+
+        AntiTheft_RefundKeylock = function(data)
+            if not data or not data.keylockId then return end
+            
+            local player = world.players[1]
+            if not player then return end
+            
+            log("[GLOBAL KEYLOCK] Refund triggered for:", data.keylockId)
+            
+            local equipment = types.Actor.getEquipment(player)
+            local equippedItem = equipment[types.Actor.EQUIPMENT_SLOT.CarriedRight]
+            
+            if equippedItem and equippedItem.recordId:lower() == data.keylockId:lower() then
+                local itemData = types.Item.itemData(equippedItem)
+                if itemData then
+                    -- Refund exactly 1 condition charge as requested
+                    local currentCondition = itemData.condition
+                    -- Get max condition from record (default to 100 if unknown)
+                    local record = types.Lockpick.record(equippedItem)
+                    local maxCondition = record and record.maxCondition or 100
+                    
+                    local newCondition = math.min(maxCondition, currentCondition + 1)
+                    itemData.condition = newCondition
+                    log("[GLOBAL KEYLOCK] Refunded 1 charge: condition", currentCondition, "->", newCondition)
+                end
+            end
+        end,
+
+        AntiTheft_FinalizeReturn = function(data)
+            if not data or not data.npcId or not data.homePosition or not data.homeRotation then return end
+            finalizeNPCReturn(data.npcId, data.homePosition, data.homeRotation)
+        end,
+
+        AntiTheft_StartReturnHome = onStartReturnHome,
+
+        AntiTheft_LowerCellDisposition = onLowerCellDisposition,
     },
     engineHandlers = {
         onUpdate = function(dt)
@@ -3549,7 +3960,7 @@ return {
                     log("[GLOBAL DEBUG] About to check if cell is interior...")
                     
                     --Scan beds in new cell
-                    if not player.cell.isExterior then
+                    if _enableBedDetection and not player.cell.isExterior then
                         log("[GLOBAL BED DEBUG] Scanning beds in interior cell:", player.cell.name)
                         local cellName = player.cell.name or "unknown"
                         local beds = scanBedsInCell(player.cell)
@@ -3560,6 +3971,7 @@ return {
                 end
                 
                 -- Check bed proximity for following NPCs (every 0.5s to save resources)
+                if _enableBedDetection then
                 for npcId, _ in pairs(followingNPCs) do
                     local npc = findNPC(npcId)
                     if npc and npc:isValid() and npc.cell == player.cell then
@@ -3705,6 +4117,7 @@ return {
                         end
                     end
                 end
+                end -- closes _enableBedDetection
             end
             
             --[[ DISABLED: Redundant Global Polling (Handled locally by blackjack_sleep.lua)
@@ -4433,8 +4846,7 @@ return {
                 end
                 ::continue::
             end
-            end 
-        end,
-
-    }
-}
+            end -- closes if _enableDoorMechanics
+        end -- closes onUpdate
+    } -- closes engineHandlers
+} -- closes return

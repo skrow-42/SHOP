@@ -101,4 +101,13 @@ function utils.findNPC(npcId, nearby)
     return nil
 end
 
+-- Check if NPC is a guard
+function utils.isGuard(npc, types)
+    if not npc then return false end
+    local record = types.NPC.record(npc)
+    if not (record and record.class) then return false end
+    local class = record.class:lower()
+    return class:find("guard") or class:find("ordinator") or class:find("buoyant") or class:find("lex")
+end
+
 return utils
