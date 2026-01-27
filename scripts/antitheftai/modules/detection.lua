@@ -62,12 +62,14 @@ detection.removedEffects = {}
 
 local function clearRay(from, to, ignoreNpc, nearby, self)
     local result = nearby.castRay(from, to, {
-        collisionType = 3,
+        collisionType = 3,  -- Check static objects (walls, architecture) to block LOS
         ignore = {ignoreNpc, self}
     })
-    
+
+    -- If no collision detected, LOS is clear
     if not result.hit then return true end
-    if result.hitObject and result.hitObject.id == self.id then return true end
+
+    -- If collision detected, LOS is blocked (walls, objects, etc.)
     return false
 end
 

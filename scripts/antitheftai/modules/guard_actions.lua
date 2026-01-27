@@ -81,6 +81,7 @@ function actions.recruit(npc, state, detection, self)
     state.following = false
     state.searching = false
     state.ernBurglarySpottedInvoked = false  -- Reset flag when recruiting a new NPC
+    state.searchTimerStarted = false  -- Reset search timer flag for new NPC
 
     -- Clear invisibility and chameleon removal flags when recruiting
     detection.removedEffects[require('scripts.antitheftai.modules.config').EFFECT_INVIS] = nil
@@ -93,8 +94,8 @@ function actions.followPlayer(state, self, config)
 
     log("[FOLLOW] Starting follow for NPC", state.guard.id)
 
-    -- Set hello to 0 when following to prevent greeting packages (only once per NPC)
-    if state.originalHelloValues[state.guard.id] and not state.helloSet[state.guard.id] then
+    -- Set hello to 0 when following to prevent greeting packages (only once per NPC, if setting enabled)
+    if config.DISABLE_HELLO_WHILE_FOLLOWING and state.originalHelloValues[state.guard.id] and not state.helloSet[state.guard.id] then
         state.guard:sendEvent('AntiTheft_SetHello', {
             value = 0
         })
@@ -120,6 +121,13 @@ function actions.followPlayer(state, self, config)
     state.lastSeenPlayer = self.position
     log("[FOLLOW] Now following player")
 
+    -- Start LOS monitoring for the recruited NPC
+    if state.guard and state.guard:isValid() then
+        log("[FOLLOW] Starting LOS monitoring for recruited NPC", state.guard.id)
+        -- LOS monitoring is handled in the main update loop, but we can force an initial check
+        state.forceLOSCheck = true
+    end
+
     -- Check for ErnBurglary integration - only invoke once per NPC following start
     if not state.ernBurglarySpottedInvoked then
         local success, mod = pcall(require, "scripts.ErnBurglary.interface")
@@ -129,6 +137,43 @@ function actions.followPlayer(state, self, config)
             state.ernBurglarySpottedInvoked = true
         end
     end
+end
+
+-- Start search/wander
+function actions.startWandering(state, config)
+    if not (state.guard and state.guard:isValid()) then return end
+
+    log("[WANDER] Starting wander for NPC", state.guard.id)
+
+    if pathModule.pathRecording[state.guard.id] and pathModule.pathRecording[state.guard.id].recordingActive then
+        pathModule.stopPathRecording(state.guard.id, state.guard.position)
+    end
+
+    -- Wander AI
+    local function wander(n, dist, dur)
+        n:sendEvent('StartAIPackage', {
+            type = 'Wander',
+            distance = dist,
+            duration = dur,
+            cancelOther = false
+        })
+    end
+
+    -- Use fixed wander time if set, otherwise random range
+    local wanderTime
+    if config.FIXED_WANDER_TIME and config.FIXED_WANDER_TIME > 0 then
+        wanderTime = config.FIXED_WANDER_TIME
+    else
+        wanderTime = config.MIN_WANDER_DELAY + math.random() * (config.MAX_WANDER_DELAY - config.MIN_WANDER_DELAY)
+    end
+    wander(state.guard, config.SEARCH_WDIST, wanderTime)
+
+    state.following = false
+    state.searching = false
+    state.returningHome = false
+    state.searchT = 0
+
+    log("[WANDER] Wandering randomly")
 end
 
 -- Start search/wander
@@ -166,12 +211,34 @@ function actions.startSearch(state, detection, config)
             cancelOther = false
         })
     end
-    
-    -- Use custom search time if set, otherwise default
+
+    -- Use fixed search time if set, otherwise random range
     if not state.searchTime then
-        state.searchTime = config.SEARCH_WTIME_MIN + math.random() * (config.SEARCH_WTIME_MAX - config.SEARCH_WTIME_MIN)
+        if config.FIXED_SEARCH_TIME > 0 then
+            state.searchTime = config.FIXED_SEARCH_TIME
+        else
+            state.searchTime = config.SEARCH_WTIME_MIN + math.random() * (config.SEARCH_WTIME_MAX - config.SEARCH_WTIME_MIN)
+        end
     end
     wander(state.guard, config.SEARCH_WDIST, state.searchTime)
+
+    -- Send global event to start search timer (only once per search start)
+    if not state.searchTimerStarted then
+        local rotX, rotY, rotZ = utils.getEulerAngles(state.home.rot)
+        core.sendGlobalEvent('AntiTheft_StartSearchTimer', {
+            npcId = state.guard.id,
+            searchTime = state.searchTime,
+            searchDistance = config.SEARCH_WDIST,
+            homePosition = state.home.pos,
+            homeRotation = { x = rotX, y = rotY, z = rotZ },
+            startPosition = state.guard.position,
+            walkRotation = state.guard.rotation:getAnglesZYX(),
+            cellName = state.guard.cell.name
+        })
+        state.searchTimerStarted = true
+        log("[SEARCH] Search timer started for NPC", state.guard.id)
+    end
+
     state.following = false
     state.searching = true
     state.returningHome = false
@@ -211,6 +278,15 @@ function actions.goHome(state, core)
         },
         originalHelloValue = originalHello
     })
+
+    -- Restore hello value to default when disbanding (if it was set to 0)
+    if config.DISABLE_HELLO_WHILE_FOLLOWING and state.helloSet[guardId] then
+        state.guard:sendEvent('AntiTheft_SetHello', {
+            value = originalHello
+        })
+        state.helloSet[guardId] = nil
+        log("[GO HOME] Restored hello value to", originalHello, "for NPC", guardId)
+    end
 
     state.following = false
     state.searching = false

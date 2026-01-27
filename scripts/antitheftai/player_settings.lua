@@ -29,18 +29,24 @@ local core    = require('openmw.core')
 local KEY      = 'SettingsSHOPset'
 local section  = storage.playerSection(KEY)
 
+local VARS_KEY = 'SettingsSHOPsetVars'
+local varsSection = storage.playerSection(VARS_KEY)
+
 -- send one key/value pair to the global script
-local function push(key)
+local function push(key, sectionRef)
     core.sendGlobalEvent('SHOP_UpdateSetting', {
         key   = key,
-        value = section:get(key)
+        value = sectionRef:get(key)
     })
 end
 
 -- on game start: push every stored value once
 async:newUnsavableSimulationTimer(0, function()
     for k, _ in pairs(section:asTable()) do
-        push(k)
+        push(k, section)
+    end
+    for k, _ in pairs(varsSection:asTable()) do
+        push(k, varsSection)
     end
 end)
 
@@ -48,9 +54,20 @@ end)
 section:subscribe(async:callback(function(_, key)
     if key == nil then                -- whole section reset ⇒ resend all
         for k, _ in pairs(section:asTable()) do
-            push(k)
+            push(k, section)
         end
     else
-        push(key)
+        push(key, section)
+    end
+end))
+
+-- whenever vars setting changes, push the updated value
+varsSection:subscribe(async:callback(function(_, key)
+    if key == nil then                -- whole section reset ⇒ resend all
+        for k, _ in pairs(varsSection:asTable()) do
+            push(k, varsSection)
+        end
+    else
+        push(key, varsSection)
     end
 end))

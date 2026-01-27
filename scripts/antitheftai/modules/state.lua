@@ -95,6 +95,7 @@ state.realTimeWandering = {}
 -- Hello value tracking
 state.helloSet = {}
 state.originalHelloValues = {}
+state.pendingHelloRestorations = {}  -- Track NPCs that need hello restoration when player returns to cell
 
 -- Reset function
 function state.reset()
@@ -121,6 +122,7 @@ function state.reset()
     state.justRecruitedAfterReturn = false
     -- Clear hello tracking on reset
     state.helloSet = {}
+    state.pendingHelloRestorations = {}
 end
 
 return state

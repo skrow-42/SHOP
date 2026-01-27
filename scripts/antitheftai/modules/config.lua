@@ -62,7 +62,10 @@ config.HIDDEN_TIMEOUT = 2.0
 config.NPC_WALK_SPEED = 40 -- do not change unless you want the guard return script to be executed too fast, if you still want to change, try going lower maybe
 config.MIN_WANDER_DELAY = settings.timing:get('minWanderDelay') or 10.0
 config.MAX_WANDER_DELAY = settings.timing:get('maxWanderDelay') or 15.0
+config.FIXED_SEARCH_TIME = settings.timing:get('fixedSearchTime') or 0.0
 config.DISABLE_HELLO_WHILE_FOLLOWING = settings.vars:get('disableHelloWhileFollowing') or true
+config.DISPOSITION_FOLLOWING_IGNORE = settings.vars:get('dispositionFollowingIgnore') or 100
+config.SIMULATED_TRAVEL_SPEED = settings.vars:get('simulatedTravelSpeed') or 300.0
 
 -- Messages
 config.invisRemovalMessages = {
@@ -75,7 +78,7 @@ config.invisRemovalMessages = {
 
 -- Filters
 -- example: config.DISABLED_NPC_NAMES = {"caius cosades", "fargoth"}
-config.DISABLED_NPC_NAMES = {"tarancur"}
+config.DISABLED_NPC_NAMES = {"tarancur", "duke dren"}
 -- example: config.DISABLED_CELL_NAMES = {"balmora, guild of fighters", "seyda neen, arrille's tradehouse"}
 config.DISABLED_CELL_NAMES = {"imperial prison ship"}
 -- example: config.DISABLED_NPC_NAME_CONTAINS = {"farg", "cosad"} , disables every NPC name containing added words

@@ -30,7 +30,15 @@ local detection   = require('scripts.antitheftai.modules.detection')
 local classification = require('scripts.antitheftai.modules.npc_classification')
 local pathModule  = require('scripts.antitheftai.modules.path_recording')
 local doorModule  = require('scripts.antitheftai.modules.door_transitions')
-local state       = require('scripts.antitheftai.modules.state')
+local state = require('scripts.antitheftai.modules.state')
+
+-- Use the settings module which automatically handles player/global storage context
+
+-- Track which NPCs are currently in search mode
+local searchingNPCs = {}
+
+-- Flag to skip cell change logic when teleport spells are used
+local skipCellChangeLogic = false
 local actions     = require('scripts.antitheftai.modules.guard_actions')
 local crossCell   = require('scripts.antitheftai.modules.cross_cell_returns')
 
@@ -74,6 +82,7 @@ settings.vars:subscribe(async:callback(function(_, key)
     if key == nil or key == 'chamHideLimit' then config.CHAM_HIDE_LIMIT = settings.vars:get('chamHideLimit') or 1 end
     if key == nil or key == 'disableHelloWhileFollowing' then config.DISABLE_HELLO_WHILE_FOLLOWING = settings.vars:get('disableHelloWhileFollowing') or true end
     if key == nil or key == 'factionIgnoreRank' then config.FACTION_IGNORE_RANK = settings.vars:get('factionIgnoreRank') or 5 end
+    if key == nil or key == 'dispositionFollowingIgnore' then config.DISPOSITION_FOLLOWING_IGNORE = settings.vars:get('dispositionFollowingIgnore') or 100 end
 end))
 
 settings.distances:subscribe(async:callback(function(_, key)
@@ -200,6 +209,7 @@ local function isCellDisabledByAnyRule()
     -- Removed slave/enemy checks to allow script in guild cells with slaves
     -- if classification.shouldDisableCellForSlavesAndEnemies(nearby, types) then return true end
     if classification.shouldDisableCellForOnlyEnemies(nearby, types) then return true end
+    if classification.shouldDisableCellForPublican(nearby, types) then return true end
     return false
 end
 
@@ -241,6 +251,10 @@ local function pickGuard(allowCurrentGuard)
     end
     state.scriptDisabled = false
 
+    -- Log the current disposition threshold setting
+    local dispositionThreshold = config.DISPOSITION_FOLLOWING_IGNORE
+    log("Disposition following ignore threshold:", dispositionThreshold)
+
     local best = nil
     local bestPriority = 999
     local bestDist = math.huge
@@ -261,6 +275,14 @@ local function pickGuard(allowCurrentGuard)
                     end
 
                     if not isDismissed then
+                        -- Check disposition threshold
+                        local npcDisposition = types.NPC.getDisposition(actor, self) or 50
+                        log("Checking NPC", actor.id, "- disposition:", npcDisposition, "threshold:", dispositionThreshold)
+                        if npcDisposition > dispositionThreshold then
+                            log("NPC", actor.id, "has disposition", npcDisposition, "which is above threshold", dispositionThreshold, "- skipping")
+                            goto continue
+                        end
+
                         if allowCurrentGuard or not (state.guard and actor.id == state.guard.id) then
                             local d = (actor.position - self.position):length()
                             if d <= config.PICK_RANGE and detection.canNpcSeePlayer(actor, self, nearby, types, config) then
@@ -273,6 +295,7 @@ local function pickGuard(allowCurrentGuard)
                             end
                         end
                     end
+                    ::continue::
                 end
             end
         end
@@ -316,6 +339,33 @@ local function onNPCReady(eventData)
     end
 end
 
+-- Clear search state when NPC is teleported home
+local function onClearSearchState(eventData)
+    if eventData and eventData.npcId then
+        log("Clearing search state for NPC", eventData.npcId, "- NPC was teleported home")
+
+        -- Clear all search-related state for this NPC
+        state.searching = false
+        state.searchT = 0
+        state.searchTime = nil
+        state.wasHidden = false
+        state.stealthMessageSent = false
+        state.invisMessageSent = false
+        state.justRemovedInvisibility = false
+        state.justRemovedChameleon = false
+
+        -- Clear any stored spell durations
+        state.invisSpellDuration = nil
+        state.chamSpellDuration = nil
+
+        -- Clear detection effects
+        detection.removedEffects[config.EFFECT_INVIS] = nil
+        detection.removedEffects[config.EFFECT_CHAM] = nil
+
+        log("✓ Search state cleared for NPC", eventData.npcId)
+    end
+end
+
 -- List of teleport effect IDs that should trigger guard teleport
 local TELEPORT_EFFECT_IDS = {
     'almsivi intervention',
@@ -351,6 +401,7 @@ local function onMagicEffectApplied(effectId, magnitude, effect)
         if effectId == DELAYED_TELEPORT_EFFECT then
             log("Delayed teleport effect '" .. effectId .. "' applied to player - waiting for location selection")
             pendingDelayedTeleport = true
+            skipCellChangeLogic = true  -- Skip cell change logic when teleport spells are used
             return
         end
 
@@ -384,6 +435,8 @@ local function onMagicEffectApplied(effectId, magnitude, effect)
         state.searching = false
         state.returningHome = true
         state.searchT = 0
+
+        skipCellChangeLogic = true  -- Skip cell change logic when teleport spells are used
 
         log("✓ NPC teleported home via global event due to teleport effect '" .. effectId .. "'")
     elseif (effectId == config.EFFECT_INVIS or effectId == config.EFFECT_CHAM) and state.guard and state.guard:isValid() and state.searching then
@@ -473,6 +526,199 @@ end
 local function onUpdate(dt)
     if isCellDisabledByAnyRule() then return end
     if state.scriptDisabled then return end
+
+    -- Cell change detection (moved to top to prevent search start during cell changes)
+    if self.cell ~= state.lastCell then
+        -- Clear search state immediately to prevent false detection
+        if state.guard and state.guard:isValid() then
+            core.sendGlobalEvent('AntiTheft_ClearSearchState', { npcId = state.guard.id })
+            log("Sent ClearSearchState event for NPC", state.guard.id, "on cell change")
+        end
+
+        -- Skip search during cell change to prevent conflicting AI states
+        state.skipSearch = true
+        log("Cell change detected - setting skipSearch flag")
+
+        log("═══════════════════════════════════════════════════")
+        log("CELL CHANGE DETECTED!")
+        log("  From:", state.lastCell and state.lastCell.name or "nil")
+        log("  To:", self.cell and self.cell.name or "nil")
+
+        local oldCellName = state.lastCell and state.lastCell.name or ""
+        local newCellName = self.cell and self.cell.name or ""
+        local oldCellIsExterior = state.lastCell and state.lastCell.isExterior or false
+        local newCellIsExterior = self.cell and self.cell.isExterior or false
+
+        -- Check if this is a teleport (large position change only)
+        local positionChange = state.lastPlayerPosition and (self.position - state.lastPlayerPosition):length() or 0
+        local isTeleport = positionChange > 1000
+
+        log("  Position change:", math.floor(positionChange), "units")
+        log("  Is teleport:", isTeleport)
+
+        -- If player is leaving cell with a following guard, start wandering immediately
+        -- (since guard can't follow across cells, but should wander instead of searching)
+        if state.guard and state.guard:isValid() and state.following then
+            log("  Player leaving cell with following guard - starting wandering immediately")
+            actions.startSearch(state, detection, config)
+        end
+
+        -- Queue hello restoration for NPCs that were following when player left cell
+        if state.guard and state.guard:isValid() and state.following and config.DISABLE_HELLO_WHILE_FOLLOWING then
+            local guardId = state.guard.id
+            local originalHello = state.originalHelloValues[guardId] or 0
+            state.pendingHelloRestorations[guardId] = originalHello
+            log("  Queued hello restoration for NPC", guardId, "to", originalHello, "when player returns to cell")
+        end
+
+        -- Exception: If leaving interior to exterior AND not a teleport, start wandering
+        if not oldCellIsExterior and newCellIsExterior and not isTeleport then
+            log("═══════════════════════════════════════════════════")
+            log("CELL CHANGE: INTERIOR → EXTERIOR (ON FOOT)")
+            log("  Player left interior cell to exterior - starting wandering")
+            log("═══════════════════════════════════════════════════")
+            if state.guard and state.guard:isValid() then
+                actions.startWandering(state, config)
+                log("  ✓ Wandering started - NPC will wander randomly")
+            else
+                log("  No valid guard to start wandering for")
+            end
+            log("═══════════════════════════════════════════════════")
+        elseif isTeleport and state.guard and state.guard:isValid() and (state.following or state.searching) then
+            -- Teleport detected - teleport NPC home immediately
+                log("  Teleport detected - teleporting guard home immediately")
+
+                -- Stop path recording first
+                if pathModule.pathRecording[state.guard.id] and pathModule.pathRecording[state.guard.id].recordingActive then
+                    pathModule.stopPathRecording(state.guard.id, state.guard.position)
+                end
+
+                -- Use global event to teleport the NPC (player script cannot directly teleport NPCs)
+                local rotX, rotY, rotZ = utils.getEulerAngles(state.home.rot)
+
+                core.sendGlobalEvent('AntiTheft_TeleportHome', {
+                    npcId = state.guard.id,
+                    homePosition = state.home.pos,
+                    homeRotation = {
+                        x = rotX,
+                        y = rotY,
+                        z = rotZ
+                    }
+                })
+
+                -- Clear AI packages
+                state.guard:sendEvent('RemoveAIPackages')
+
+                -- Mark as teleported home
+                state.returnInProgress[state.guard.id] = true
+                state.mustCompleteReturn[state.guard.id] = true
+                state.following = false
+                state.searching = false
+                state.returningHome = true
+                state.searchT = 0
+
+                log("  ✓ NPC teleported home via global event")
+            elseif state.guard and state.guard:isValid() then
+            -- Same area cell change - use old cross-cell return logic
+            local guardId = state.guard.id
+            local guardPos = utils.v3(state.guard.position)
+            local guardCell = state.lastCell and state.lastCell.name or "unknown"
+
+            if pathModule.pathRecording[guardId] and pathModule.pathRecording[guardId].recordingActive then
+                pathModule.stopPathRecording(guardId, guardPos)
+            end
+
+            local homeData = state.npcOriginalData[guardId]
+            if not homeData then
+                homeData = storage.retrieveNPCData(guardId, state.lastCell, util)
+            end
+
+            if homeData then
+                crossCell.startCrossCellReturn(guardId, guardPos, homeData, guardCell, state, core, config)
+                log("  ✓ Cross-cell return started")
+            end
+
+            state.reset()
+        end
+
+        crossCell.processReturningNPCsInCell(state, nearby, core, config)
+        log("═══════════════════════════════════════════════════")
+
+        state.lastCell = self.cell
+        state.lastPlayerPosition = self.position
+        state.lastPlayerCell = self.cell
+
+        -- Force wandering if NPC is searching when player returns to cell
+        if state.guard and state.guard:isValid() and state.searching then
+            log("Player returned to cell with searching NPC, forcing wander instead of search")
+            actions.startWandering(state, config)
+        end
+
+        -- Process pending hello restorations when entering a new cell
+        if state.pendingHelloRestorations then
+            for npcId, originalHello in pairs(state.pendingHelloRestorations) do
+                local npc = nil
+                for _, actor in ipairs(nearby.actors) do
+                    if actor.id == npcId then
+                        npc = actor
+                        break
+                    end
+                end
+                if npc and npc:isValid() then
+                    npc:sendEvent('AntiTheft_SetHello', {
+                        value = originalHello
+                    })
+                    log("  Restored hello value to", originalHello, "for NPC", npcId, "upon returning to cell")
+                end
+                state.pendingHelloRestorations[npcId] = nil
+            end
+        end
+
+        if isCellAllowed() then
+            storage.saveAllNPCsInCell(self.cell, nearby, types, util)
+        end
+
+        -- Log factions on cell change for interior cells
+        if self.cell and not self.cell.isExterior then
+            -- Log player factions
+            log("=== PLAYER FACTIONS ===")
+            if types and types.NPC and types.NPC.getFactions then
+                local playerFactions = types.NPC.getFactions(self)
+                if playerFactions and #playerFactions > 0 then
+                    for _, factionId in ipairs(playerFactions) do
+                        local rank = types.NPC.getFactionRank(self, factionId)
+                        local reputation = types.NPC.getFactionReputation(self, factionId)
+                        log("Player Faction:", factionId, "Rank:", rank, "Reputation:", reputation)
+                    end
+                else
+                    log("Player has no factions")
+                end
+            else
+                log("Player faction data not available")
+            end
+            log("=== END PLAYER FACTIONS ===")
+
+            -- Log NPC factions in current cell
+            log("=== NPC FACTIONS IN CELL ===")
+            for _, actor in ipairs(nearby.actors) do
+                if actor.type == types.NPC then
+                    local npcFactions = types.NPC.getFactions(actor)
+                    if npcFactions and #npcFactions > 0 then
+                        for _, factionId in ipairs(npcFactions) do
+                            local rank = types.NPC.getFactionRank(actor, factionId)
+                            local reputation = types.NPC.getFactionReputation(actor, factionId)
+                            log("NPC:", actor.id, "Faction:", factionId, "Rank:", rank, "Reputation:", reputation)
+                        end
+                    else
+                        log("NPC:", actor.id, "No factions")
+                    end
+                end
+            end
+            log("=== END NPC FACTIONS ===")
+        end
+
+        return
+    end
 
     -- Log factions once at script start
     if not state.factionsLogged then
@@ -663,7 +909,14 @@ local function onUpdate(dt)
     elseif not dialogueOpen and state.dialogueWasOpen then
         state.dialogueWasOpen = false
         if state.guard and state.guard:isValid() then
-            actions.followPlayer(state, self, config)
+            -- Check current guard's disposition when dialogue closes
+            local guardDisposition = types.NPC.getDisposition(state.guard, self) or 0
+            if guardDisposition > config.DISPOSITION_FOLLOWING_IGNORE then
+                log("Current guard", state.guard.id, "has disposition", guardDisposition, "which is above threshold", config.DISPOSITION_FOLLOWING_IGNORE, "- disbanding")
+                actions.goHome(state, core)
+            else
+                actions.followPlayer(state, self, config)
+            end
         end
     end
 
@@ -817,12 +1070,14 @@ local function onUpdate(dt)
     if (not state.guard or (state.guard and state.returningHome)) and not state.waiting then
         if state.forceLOSCheck then
             state.forceLOSCheck = false
-            -- For forceLOSCheck, recruit the closest NPC, ignoring LOS and range, but only if player is not hidden
+            -- For forceLOSCheck, recruit the closest NPC with LOS check, but only if player is not hidden
             local isMagicHidden = detection.magicHidden(self, types, config)
             local isSneakHidden = detection.sneakHidden(self, types, config, nil, nearby)
             if not isSneakHidden and not isMagicHidden then
                 local best = nil
+                local bestPriority = 999
                 local bestDist = math.huge
+                local dispositionThreshold = config.DISPOSITION_FOLLOWING_IGNORE
                 for _, actor in ipairs(nearby.actors) do
                     if actor.type == types.NPC then
                         local record = types.NPC.record(actor)
@@ -839,19 +1094,32 @@ local function onUpdate(dt)
                                 end
 
                                 if not isDismissed then
+                                    -- Check disposition threshold
+                                    local npcDisposition = types.NPC.getDisposition(actor, self) or 50
+                                    log("ForceLOSCheck - Checking NPC", actor.id, "- disposition:", npcDisposition, "threshold:", dispositionThreshold)
+                                    if npcDisposition > dispositionThreshold then
+                                        log("ForceLOSCheck - NPC", actor.id, "has disposition", npcDisposition, "above threshold", dispositionThreshold, "- skipping")
+                                        goto continue
+                                    end
+
                                     local d = (actor.position - self.position):length()
-                                    if d < bestDist then
-                                        best = actor
-                                        bestDist = d
+                                    if d <= config.PICK_RANGE and detection.canNpcSeePlayer(actor, self, nearby, types, config) then
+                                        local priority = classification.getNPCPriority(actor, types, self, self.cell, config, nearby)
+                                        if priority < bestPriority or (priority == bestPriority and d < bestDist) then
+                                            best = actor
+                                            bestPriority = priority
+                                            bestDist = d
+                                        end
                                     end
                                 end
                             end
                         end
+                        ::continue::
                     end
                 end
                 if best then
                     actions.recruit(best, state, detection, self)
-                    state.guardPriority = classification.getNPCPriority(best, types, self, self.cell, config, nearby)
+                    state.guardPriority = bestPriority
                     if not dialogueOpen then
                         actions.followPlayer(state, self, config)
                     end
@@ -923,183 +1191,6 @@ local function onUpdate(dt)
             end
         end
         return true
-    end
-
-    -- Cell change detection
-    if self.cell ~= state.lastCell then
-        log("═══════════════════════════════════════════════════")
-        log("CELL CHANGE DETECTED!")
-        log("  From:", state.lastCell and state.lastCell.name or "nil")
-        log("  To:", self.cell and self.cell.name or "nil")
-
-        local oldCellName = state.lastCell and state.lastCell.name or ""
-        local newCellName = self.cell and self.cell.name or ""
-        local oldCellIsExterior = state.lastCell and state.lastCell.isExterior or false
-        local newCellIsExterior = self.cell and self.cell.isExterior or false
-
-        -- Check if this is a teleport (large position change or different area)
-        local positionChange = state.lastPlayerPosition and (self.position - state.lastPlayerPosition):length() or 0
-        local isTeleport = positionChange > 1000 or not containsAllWords(oldCellName, newCellName)
-
-        log("  Position change:", math.floor(positionChange), "units")
-        log("  Contains all words:", containsAllWords(oldCellName, newCellName))
-        log("  Is teleport:", isTeleport)
-
-        -- Exception: If leaving interior to exterior AND not a teleport, start search
-        if not oldCellIsExterior and newCellIsExterior and not isTeleport then
-            log("  Leaving interior to exterior (not teleport) - starting search")
-            if state.guard and state.guard:isValid() then
-                -- Calculate search time based on effect duration if player is hidden
-                local isMagicHidden = detection.magicHidden(self, types, config)
-                local isSneakHidden = detection.sneakHidden(self, types, config, state.guard, nearby)
-                if isMagicHidden or isSneakHidden then
-                    local invisEff = getActiveSpellEffect(self, config.EFFECT_INVIS)
-                    local chamEff = getActiveSpellEffect(self, config.EFFECT_CHAM)
-                    debugPrintStealthDurations()
-                    local searchTime = config.SEARCH_WTIME_MAX -- default
-                    if invisEff and invisEff.duration then
-                        log("Invisibility effect duration read:", invisEff.duration, "seconds")
-                        if invisEff.duration == 0 or invisEff.duration > 1000000 then
-                            searchTime = 600 -- 10 minutes for constant effect
-                            log("Constant invisibility effect detected, search time set to:", searchTime, "seconds")
-                        else
-                            local extra = math.random(15, 30)
-                            searchTime = invisEff.duration + extra
-                            log("Calculated search time for invisibility:", searchTime, "seconds (duration +", extra, ")")
-                        end
-                    elseif chamEff and chamEff.duration then
-                        log("Chameleon effect duration read:", chamEff.duration, "seconds")
-                        if chamEff.duration == 0 or chamEff.duration > 1000000 then
-                            searchTime = 600 -- 10 minutes for constant effect
-                            log("Constant chameleon effect detected, search time set to:", searchTime, "seconds")
-                        else
-                            local extra = math.random(15, 30)
-                            searchTime = chamEff.duration + extra
-                            log("Calculated search time for chameleon:", searchTime, "seconds (duration +", extra, ")")
-                        end
-                    else
-                        log("No effect duration found, using default search time:", searchTime, "seconds")
-                    end
-                    state.searchTime = searchTime
-                end
-                actions.startSearch(state, detection, config)
-                log("  ✓ Search started")
-            end
-        elseif isTeleport and state.guard and state.guard:isValid() and (state.following or state.searching) then
-            -- Check if this is a teleport from interior to exterior (likely door transition)
-            if not oldCellIsExterior and newCellIsExterior then
-                log("  Teleport from interior to exterior detected - starting search instead")
-                actions.startSearch(state, detection, config)
-                log("  ✓ Search started")
-            else
-                -- Teleport detected - teleport NPC home immediately
-                log("  Teleport detected - teleporting guard home immediately")
-
-                -- Stop path recording first
-                if pathModule.pathRecording[state.guard.id] and pathModule.pathRecording[state.guard.id].recordingActive then
-                    pathModule.stopPathRecording(state.guard.id, state.guard.position)
-                end
-
-                -- Use global event to teleport the NPC (player script cannot directly teleport NPCs)
-                local rotX, rotY, rotZ = utils.getEulerAngles(state.home.rot)
-
-                core.sendGlobalEvent('AntiTheft_TeleportHome', {
-                    npcId = state.guard.id,
-                    homePosition = state.home.pos,
-                    homeRotation = {
-                        x = rotX,
-                        y = rotY,
-                        z = rotZ
-                    }
-                })
-
-                -- Clear AI packages
-                state.guard:sendEvent('RemoveAIPackages')
-
-                -- Mark as teleported home
-                state.returnInProgress[state.guard.id] = true
-                state.mustCompleteReturn[state.guard.id] = true
-                state.following = false
-                state.searching = false
-                state.returningHome = true
-                state.searchT = 0
-
-                log("  ✓ NPC teleported home via global event")
-            end
-        elseif state.guard and state.guard:isValid() then
-            -- Same area cell change - use old cross-cell return logic
-            local guardId = state.guard.id
-            local guardPos = utils.v3(state.guard.position)
-            local guardCell = state.lastCell and state.lastCell.name or "unknown"
-
-            if pathModule.pathRecording[guardId] and pathModule.pathRecording[guardId].recordingActive then
-                pathModule.stopPathRecording(guardId, guardPos)
-            end
-
-            local homeData = state.npcOriginalData[guardId]
-            if not homeData then
-                homeData = storage.retrieveNPCData(guardId, state.lastCell, util)
-            end
-
-            if homeData then
-                crossCell.startCrossCellReturn(guardId, guardPos, homeData, guardCell, state, core, config)
-                log("  ✓ Cross-cell return started")
-            end
-
-            state.reset()
-        end
-
-        crossCell.processReturningNPCsInCell(state, nearby, core, config)
-        log("═══════════════════════════════════════════════════")
-
-        state.lastCell = self.cell
-        state.lastPlayerPosition = self.position
-        state.lastPlayerCell = self.cell
-
-        if isCellAllowed() then
-            storage.saveAllNPCsInCell(self.cell, nearby, types, util)
-        end
-
-        -- Log factions on cell change for interior cells
-        if self.cell and not self.cell.isExterior then
-            -- Log player factions
-            log("=== PLAYER FACTIONS ===")
-            if types and types.NPC and types.NPC.getFactions then
-                local playerFactions = types.NPC.getFactions(self)
-                if playerFactions and #playerFactions > 0 then
-                    for _, factionId in ipairs(playerFactions) do
-                        local rank = types.NPC.getFactionRank(self, factionId)
-                        local reputation = types.NPC.getFactionReputation(self, factionId)
-                        log("Player Faction:", factionId, "Rank:", rank, "Reputation:", reputation)
-                    end
-                else
-                    log("Player has no factions")
-                end
-            else
-                log("Player faction data not available")
-            end
-            log("=== END PLAYER FACTIONS ===")
-
-            -- Log NPC factions in current cell
-            log("=== NPC FACTIONS IN CELL ===")
-            for _, actor in ipairs(nearby.actors) do
-                if actor.type == types.NPC then
-                    local npcFactions = types.NPC.getFactions(actor)
-                    if npcFactions and #npcFactions > 0 then
-                        for _, factionId in ipairs(npcFactions) do
-                            local rank = types.NPC.getFactionRank(actor, factionId)
-                            local reputation = types.NPC.getFactionReputation(actor, factionId)
-                            log("NPC:", actor.id, "Faction:", factionId, "Rank:", rank, "Reputation:", reputation)
-                        end
-                    else
-                        log("NPC:", actor.id, "No factions")
-                    end
-                end
-            end
-            log("=== END NPC FACTIONS ===")
-        end
-
-        return
     end
 
     -- Same-cell door transitions
@@ -1181,38 +1272,43 @@ local function onUpdate(dt)
 
             -- Check if player becomes invisible
             if isMagicHidden and not state.justRecruitedAfterReturn then
-                log("*** PLAYER BECAME INVISIBLE WHILE FOLLOWING ***")
-                -- Calculate search time based on effect duration
-                local searchTime = config.SEARCH_WTIME_MAX -- default
-                local invisEff = getActiveSpellEffect(self, config.EFFECT_INVIS)
-                local chamEff = getActiveSpellEffect(self, config.EFFECT_CHAM)
-                debugPrintStealthDurations()
-                if invisEff and invisEff.duration ~= nil then
-                    log("Invisibility effect duration read:", invisEff.duration, "seconds")
-                    if invisEff.duration == 0 then
-                        searchTime = 600 -- 10 minutes for constant effect
-                        log("Constant invisibility effect detected, search time set to:", searchTime, "seconds")
-                    else
-                        local extra = math.random(15, 30)
-                        searchTime = invisEff.duration + extra
-                        log("Calculated search time for invisibility:", searchTime, "seconds (duration +", extra, ")")
-                    end
-                elseif chamEff and chamEff.duration ~= nil then
-                    log("Chameleon effect duration read:", chamEff.duration, "seconds")
-                    if chamEff.duration == 0 then
-                        searchTime = 600 -- 10 minutes for constant effect
-                        log("Constant chameleon effect detected, search time set to:", searchTime, "seconds")
-                    else
-                        local extra = math.random(15, 30)
-                        searchTime = chamEff.duration + extra
-                        log("Calculated search time for chameleon:", searchTime, "seconds (duration +", extra, ")")
-                    end
+                if state.skipSearch then
+                    state.skipSearch = false
+                    log("Skipping search start due to cell change - player left cell")
                 else
-                    log("No effect duration found, using default search time:", searchTime, "seconds")
+                    log("*** PLAYER BECAME INVISIBLE WHILE FOLLOWING ***")
+                    -- Calculate search time based on effect duration
+                    local searchTime = config.SEARCH_WTIME_MAX -- default
+                    local invisEff = getActiveSpellEffect(self, config.EFFECT_INVIS)
+                    local chamEff = getActiveSpellEffect(self, config.EFFECT_CHAM)
+                    debugPrintStealthDurations()
+                    if invisEff and invisEff.duration ~= nil then
+                        log("Invisibility effect duration read:", invisEff.duration, "seconds")
+                        if invisEff.duration == 0 then
+                            searchTime = 600 -- 10 minutes for constant effect
+                            log("Constant invisibility effect detected, search time set to:", searchTime, "seconds")
+                        else
+                            local extra = math.random(15, 30)
+                            searchTime = invisEff.duration + extra
+                            log("Calculated search time for invisibility:", searchTime, "seconds (duration +", extra, ")")
+                        end
+                    elseif chamEff and chamEff.duration ~= nil then
+                        log("Chameleon effect duration read:", chamEff.duration, "seconds")
+                        if chamEff.duration == 0 then
+                            searchTime = 600 -- 10 minutes for constant effect
+                            log("Constant chameleon effect detected, search time set to:", searchTime, "seconds")
+                        else
+                            local extra = math.random(15, 30)
+                            searchTime = chamEff.duration + extra
+                            log("Calculated search time for chameleon:", searchTime, "seconds (duration +", extra, ")")
+                        end
+                    else
+                        log("No effect duration found, using default search time:", searchTime, "seconds")
+                    end
+                    state.searchTime = searchTime
+                    actions.startSearch(state, detection, config)
+                    lowerCellDisposition()
                 end
-                state.searchTime = searchTime
-                actions.startSearch(state, detection, config)
-                lowerCellDisposition()
             else
                 state.tRefresh = state.tRefresh + dt
                 if state.tRefresh >= config.UPDATE_PERIOD then
@@ -1304,11 +1400,11 @@ log("=== SCRIPT LOADED SUCCESSFULLY v20.0 - MODULAR ===")
 ----------------------------------------------------------------------
 return {
     engineHandlers = {
-        onUpdate = onUpdate,
-        onTeleported = onTeleported
+        onUpdate = onUpdate
     },
     eventHandlers = {
         AntiTheft_NPCReady = onNPCReady,
+        AntiTheft_ClearSearchState = onClearSearchState,
         AntiTheft_MagicEffectApplied = onMagicEffectApplied
     }
 }

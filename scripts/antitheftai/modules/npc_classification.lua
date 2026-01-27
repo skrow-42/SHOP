@@ -286,6 +286,19 @@ function classification.shouldDisableCellForOnlyEnemies(nearby, types)
     return hasEnemies and not hasNonEnemies
 end
 
+-- Check for publican NPCs
+function classification.shouldDisableCellForPublican(nearby, types)
+    for _, actor in ipairs(nearby.actors) do
+        if actor.type == types.NPC then
+            local record = types.NPC.record(actor)
+            if record and record.class and record.class:lower() == "publican" then
+                return true
+            end
+        end
+    end
+    return false
+end
+
 -- Detect cell faction from NPCs in the cell
 function classification.detectCellFaction(nearby, types)
     local factionCounts = {}

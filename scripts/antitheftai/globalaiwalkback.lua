@@ -24,6 +24,7 @@ local storage = require('openmw.storage')
 
 -- Global scripts must use *global* storage instead of player storage
 local settings = storage.globalSection("SettingsSHOPset")
+local vars = storage.globalSection("SettingsSHOPsetVars")
 local seenMessages = {}
 
 -- local cache, used by your log() helper
@@ -49,6 +50,10 @@ local function onUpdateSetting(data)
     if not data or not data.key then return end
     -- store it permanently
     settings:set(data.key, data.value)
+    -- also handle vars settings
+    if data.key == 'dispositionChange' or data.key == 'removeDispositionOnce' then
+        vars:set(data.key, data.value)
+    end
     -- refresh the local cache so the new value is used immediately
     if data.key == 'enableGlobalDebug' then
         _enableGlobalDebug = data.value
@@ -63,6 +68,7 @@ local world = require('openmw.world')
 local util  = require('openmw.util')
 local core  = require('openmw.core')
 local types = require('openmw.types')
+local config = require('scripts.antitheftai.modules.config')
 
 local pendingReturns  = {}
 local activeRotations = {}
@@ -70,6 +76,11 @@ local wanderingNPCs = {}  -- Track NPCs currently wandering
 local pendingTeleports = {}  -- Track NPCs waiting to be teleported
 local teleportingNPCs = {}  -- Track NPCs currently being teleported home
 local teleportTimeouts = {}  -- Track NPCs with 5-minute timeout to return to default position
+local dispositionAppliedCells = {}  -- Track cells where disposition penalty has been applied (count up to 2)
+local lastPlayerCell = nil  -- Track the last cell the player was in
+local searchTimers = {}  -- Track search timers for NPCs
+local returnStartTimes = {}  -- Track when NPCs started returning home (for simulation when not loaded)
+local recentlyRotated = {}  -- Track NPCs that recently completed rotation to prevent duplicate returns
 
 ----------------------------------------------------------------------
 -- Helper: find NPC by ID
@@ -87,6 +98,18 @@ end
 local function finishReturn(rot)
     local npc = rot.npc
 
+    -- Check if NPC is still valid before teleporting
+    if not (npc and npc:isValid()) then
+        log("NPC", rot.npcId, "became invalid before finishing rotation - cleaning up")
+        return
+    end
+
+    -- Check if NPC is already being teleported
+    if teleportingNPCs[rot.npcId] then
+        log("NPC", rot.npcId, "is already being teleported - skipping duplicate teleport")
+        return
+    end
+
     if not rot.homeRotation then
         log("ERROR: Missing homeRotation for NPC", rot.npcId)
         return
@@ -95,15 +118,35 @@ local function finishReturn(rot)
     local homeRotTransform = util.transform.rotateZ(rot.homeRotation.z or 0) *
                              util.transform.rotateY(rot.homeRotation.y or 0) *
                              util.transform.rotateX(rot.homeRotation.x or 0)
-    
-    npc:teleport(npc.cell.name, npc.position, { rotation = homeRotTransform, onGround = true })
 
-    local player = world.players[1]
-    if player then
-        player:sendEvent('AntiTheft_NPCReady', { npcId = rot.npcId })
-        log("✓ NPC", rot.npcId, "ready – can detect player")
+    -- Final validity check before teleport
+    if npc and npc:isValid() then
+        -- Mark as teleporting to prevent duplicate teleports
+        teleportingNPCs[rot.npcId] = true
+
+        npc:teleport(npc.cell.name, npc.position, { rotation = homeRotTransform, onGround = true })
+
+        local player = world.players[1]
+        if player then
+            player:sendEvent('AntiTheft_NPCReady', { npcId = rot.npcId })
+            log("✓ NPC", rot.npcId, "ready – can detect player")
+        else
+            log("ERROR: Could not find player to send ready event")
+        end
+
+        -- Clear teleporting flag immediately (async not available in global scripts)
+        teleportingNPCs[rot.npcId] = nil
+
+        -- Remove from pending returns to prevent re-triggering rotation
+        for i = #pendingReturns, 1, -1 do
+            if pendingReturns[i].npcId == rot.npcId then
+                table.remove(pendingReturns, i)
+                log("Removed NPC", rot.npcId, "from pending returns after rotation completion")
+                break
+            end
+        end
     else
-        log("ERROR: Could not find player to send ready event")
+        log("NPC", rot.npcId, "became invalid during final teleport - cleaning up")
     end
 end
 
@@ -115,11 +158,14 @@ local function startGlobalRotation(npc, targetRotation, duration, homePosition, 
         log("ERROR: Invalid NPC in startGlobalRotation")
         return
     end
-    
+
     if not targetRotation then
         log("ERROR: Missing targetRotation for NPC", npc.id)
         return
     end
+
+    -- Always perform smooth rotation when player is in the same cell
+    -- (Direct teleportation is only for cross-cell transitions or search timer expirations)
 
     local currentZ = npc.rotation:getAnglesZYX()
 
@@ -159,22 +205,44 @@ local function updateGlobalRotations(dt)
         else
             rot.elapsed = rot.elapsed + dt
             if rot.elapsed >= rot.duration then
-                finishReturn(rot)
+                -- Check validity before finishing return
+                if rot.npc and rot.npc:isValid() then
+                    finishReturn(rot)
+                else
+                    log("NPC became invalid before finishing rotation - cleaning up")
+                end
                 table.remove(activeRotations, i)
             else
-                local t = rot.elapsed / rot.duration
-                local eased = (t < 0.5) and (4*t*t*t)
-                              or (1 - math.pow(-2*t + 2, 3)/2)
-                local curZ = rot.startZ + rot.diffZ * eased
-                local curRot = util.transform.rotateZ(curZ)
-                              * util.transform.rotateY(rot.targetY)
-                              * util.transform.rotateX(rot.targetX)
-                rot.npc:teleport(rot.npc.cell.name, rot.npc.position,
-                                 { rotation = curRot, onGround = true })
-                rot.lastLog = rot.lastLog + dt
-                if rot.lastLog >= 0.5 then
-                    log("Rotating NPC", rot.npcId, "...", math.floor(t*100), "%")
-                    rot.lastLog = 0
+                -- Check validity before teleporting
+                if rot.npc and rot.npc:isValid() then
+                    local t = rot.elapsed / rot.duration
+                    local eased = (t < 0.5) and (4*t*t*t)
+                                  or (1 - math.pow(-2*t + 2, 3)/2)
+                    local curZ = rot.startZ + rot.diffZ * eased
+                    local curRot = util.transform.rotateZ(curZ)
+                                  * util.transform.rotateY(rot.targetY)
+                                  * util.transform.rotateX(rot.targetX)
+
+                    -- Final validity check before teleport and ensure not already teleporting
+                    if rot.npc and rot.npc:isValid() and not teleportingNPCs[rot.npcId] then
+                        rot.npc:teleport(rot.npc.cell.name, rot.npc.position,
+                                         { rotation = curRot, onGround = true })
+                        rot.lastLog = rot.lastLog + dt
+                        if rot.lastLog >= 0.5 then
+                            log("Rotating NPC", rot.npcId, "...", math.floor(t*100), "%")
+                            rot.lastLog = 0
+                        end
+                    else
+                        if teleportingNPCs[rot.npcId] then
+                            log("NPC", rot.npcId, "is already teleporting - skipping rotation teleport")
+                        else
+                            log("NPC became invalid during rotation teleport - cleaning up")
+                            table.remove(activeRotations, i)
+                        end
+                    end
+                else
+                    log("NPC became invalid during rotation - cleaning up")
+                    table.remove(activeRotations, i)
                 end
             end
         end
@@ -206,51 +274,44 @@ local function processPendingReturns(dt)
 
         elseif ret.timer <= 0 then
             local npc = findNPC(ret.npcId)
-            
+
             if npc and npc:isValid() then
-                if ret.phase == 1 then
-                    local dist = (npc.position - ret.exactHomePosition):length()
-                    local curPos = util.vector3(npc.position.x, npc.position.y, npc.position.z)
+                local dist = (npc.position - ret.exactHomePosition):length()
+                local curPos = util.vector3(npc.position.x, npc.position.y, npc.position.z)
 
-                    if ret.lastPosition then
-                        local move = (curPos - ret.lastPosition):length()
-                        if move < 0.1 then
-                            ret.stopCount = (ret.stopCount or 0) + 1
-                        else
-                            ret.stopCount = 0
-                        end
-                    end
-                    ret.lastPosition = curPos
-
-                    if dist < 35 and (ret.stopCount or 0) >= 3 then
-                        npc:sendEvent('RemoveAIPackages')
-                        ret.phase = 2
-                        ret.timer = 0.01
-                        log("NPC", ret.npcId, "arrived home, proceeding to rotation")
-                    elseif (ret.phase1Checks or 0) > 100 then
-                        if dist < 35 then
-                            npc:sendEvent('RemoveAIPackages')
-                            ret.phase = 2
-                            ret.timer = 0.01
-                        else
-                            log("Resending travel command for NPC", ret.npcId)
-                            npc:sendEvent('RemoveAIPackages')
-                            npc:sendEvent('StartAIPackage', {
-                                type        = 'Travel',
-                                destPosition= ret.exactHomePosition,
-                                cancelOther = true
-                            })
-                            ret.phase1Checks = 0
-                        end
+                -- Check if NPC has stopped moving
+                if ret.lastPosition then
+                    local move = (curPos - ret.lastPosition):length()
+                    if move < 0.1 then
+                        ret.stopCount = (ret.stopCount or 0) + 1
                     else
-                        ret.phase1Checks = (ret.phase1Checks or 0) + 1
-                        ret.timer = 0.2
+                        ret.stopCount = 0
                     end
+                end
+                ret.lastPosition = curPos
 
-                elseif ret.phase == 2 then
-                    startGlobalRotation(npc, ret.homeRotation, 0.3, ret.exactHomePosition, ret.homeRotation)
+                -- Log distance periodically (not every frame)
+                if not ret.lastDistanceLog or ret.totalTime - ret.lastDistanceLog >= 1.0 then
+                    log("NPC", ret.npcId, "distance to home:", math.floor(dist), "units")
+                    ret.lastDistanceLog = ret.totalTime
+                end
+
+                -- Check if NPC has arrived home (within 15 units tolerance)
+                if dist < 15 then
+                    log("NPC", ret.npcId, "arrived home (within 15 units) - starting rotation to base position")
+
+                    -- Clear AI packages
+                    npc:sendEvent('RemoveAIPackages')
+
+                    -- Start rotation to home orientation
+                    startGlobalRotation(npc, ret.homeRotation, 0.85, ret.exactHomePosition, ret.homeRotation)
+
+                    -- Remove from pending returns
                     table.remove(pendingReturns, i)
                     i = i - 1
+                else
+                    -- Still traveling, check again in 0.2 seconds
+                    ret.timer = 0.2
                 end
             else
                 log("WARNING: NPC", ret.npcId, "not found - will retry")
@@ -266,20 +327,26 @@ end
 ----------------------------------------------------------------------
 local function onStartWandering(data)
     if not data or not data.npcId then return end
-    
+
     log("═══════════════════════════════════════════════════")
     log("START WANDERING (search-style) for NPC", data.npcId)
     log("  Wander position:", data.wanderPosition)
     log("  Wander distance:", data.wanderDistance)
     log("  Wander duration:", data.wanderDuration, "seconds")
-    
+
+    -- Clear any existing search timers for this NPC to prevent conflicts
+    if searchTimers[data.npcId] then
+        searchTimers[data.npcId] = nil
+        log("Cleared existing search timer for NPC", data.npcId)
+    end
+
     local npc = findNPC(data.npcId)
     if npc and npc:isValid() then
         log("  ✓ NPC found - sending search-style AI packages")
-        
+
         -- Clear any existing AI packages
         npc:sendEvent('RemoveAIPackages')
-        
+
         -- ★★★ Give Travel + Wander combo (same as search behavior) ★★★
         -- First travel to last known position (if any)
         if data.wanderPosition then
@@ -289,7 +356,7 @@ local function onStartWandering(data)
                 cancelOther = false
             })
         end
-        
+
         -- Then wander around
         npc:sendEvent('StartAIPackage', {
             type = 'Wander',
@@ -297,7 +364,7 @@ local function onStartWandering(data)
             duration = data.wanderDuration,
             cancelOther = false
         })
-        
+
         -- Track wandering NPC
         wanderingNPCs[data.npcId] = {
             npcId = data.npcId,
@@ -305,13 +372,13 @@ local function onStartWandering(data)
             homeRotation = data.homeRotation,
             wanderEndTime = core.getRealTime() + data.wanderDuration
         }
-        
+
         log("  ✓ Search-style packages sent (Travel + Wander)")
         log("  NPC will wander for", math.floor(data.wanderDuration), "seconds")
     else
         log("  ⚠ NPC not found in loaded cells")
         log("  NPC will wander when cell loads")
-        
+
         -- Still track it in case cell loads later
         wanderingNPCs[data.npcId] = {
             npcId = data.npcId,
@@ -320,7 +387,7 @@ local function onStartWandering(data)
             wanderEndTime = core.getRealTime() + data.wanderDuration
         }
     end
-    
+
     log("═══════════════════════════════════════════════════")
 end
 
@@ -384,7 +451,7 @@ local function onFinalizeReturn(data)
     local npc = findNPC(data.npcId)
     if npc and npc:isValid() then
         log("  Starting rotation to home orientation")
-        startGlobalRotation(npc, data.homeRotation, 0.8, data.homePosition, data.homeRotation)
+        startGlobalRotation(npc, data.homeRotation, 0.5, data.homePosition, data.homeRotation)
     else
         log("  ERROR: NPC not found - sending ready event anyway")
         local player = world.players[1]
@@ -582,8 +649,12 @@ local function finalizeNPCReturn(npcId, homePosition, homeRotation)
     local player = world.players[1]
     if player then
         player:sendEvent('AntiTheft_NPCReady', { npcId = npcId })
-        log("  ✓ Sent NPCReady event")
+        player:sendEvent('AntiTheft_ClearSearchState', { npcId = npcId })
+        log("  ✓ Sent NPCReady and ClearSearchState events")
     end
+
+    -- Enable default AI behavior after teleporting home
+    npc:sendEvent('AntiTheft_EnableDefaultAI')
 
     return true
 end
@@ -649,14 +720,30 @@ local function onStartReturnHome(data)
         return
     end
 
+    -- Check if this NPC is already being sent home to prevent duplicate travel packages
+    for _, ret in ipairs(pendingReturns) do
+        if ret.npcId == data.npcId then
+            log("NPC", data.npcId, "is already returning home - ignoring duplicate request")
+            return
+        end
+    end
+
+    -- Check if this NPC recently completed rotation to prevent infinite loop
+    if recentlyRotated[data.npcId] then
+        local timeSinceRotation = core.getRealTime() - recentlyRotated[data.npcId]
+        if timeSinceRotation < 2.0 then  -- Within 2 seconds of completing rotation
+            log("NPC", data.npcId, "recently completed rotation (", string.format("%.1f", timeSinceRotation), "s ago) - ignoring duplicate return request")
+            return
+        end
+    end
+
     log("═══════════════════════════════════════════════════")
     log("GLOBAL: Return home request for NPC", data.npcId)
-    log("  (Player in same cell - using AI movement)")
+    log("  (Player in same cell - using AI movement with rotation)")
 
     local npc = findNPC(data.npcId)
     if npc and npc:isValid() then
-        log("  ✓ NPC found - sending travel package")
-        log("  Current position:", npc.position)
+        log("  ✓ NPC found - sending travel package and setting up rotation")
         log("  Home position:", data.homePosition)
         log("  Distance:", math.floor((npc.position - data.homePosition):length()), "units")
 
@@ -666,29 +753,34 @@ local function onStartReturnHome(data)
             log("  ✓ Sent event to restore hello value to", data.originalHelloValue, "for NPC", data.npcId)
         end
 
+        -- Clear any existing AI packages
         npc:sendEvent('RemoveAIPackages')
+
+        -- Send travel package
         npc:sendEvent('StartAIPackage', {
             type        = 'Travel',
             destPosition= data.homePosition,
             cancelOther = true
         })
-        log("  ✓ Travel package sent")
+
+        log("  ✓ Travel package sent - NPC will walk to home")
     else
         log("  ⚠ NPC not found in loaded cells")
     end
 
+    -- Add to pending returns for arrival detection and rotation
     table.insert(pendingReturns, {
         npcId              = data.npcId,
         exactHomePosition  = data.homePosition,
         homeRotation       = data.homeRotation,
-        timer              = 0.2,
+        timer              = 0.2,  -- Check more frequently for smoother detection
         phase              = 1,
         totalTime          = 0,
-        phase1Checks       = 0,
-        stopCount          = 0,
-        lastPosition       = nil
+        lastPosition       = nil,
+        stopCount          = 0
     })
-    log("  ✓ Added to pending returns queue")
+    log("  ✓ Added to pending returns for rotation when arrived")
+
     log("═══════════════════════════════════════════════════")
 end
 
@@ -703,16 +795,31 @@ local function onLowerCellDisposition(data)
     local playerCell = player.cell
     log("Player cell:", playerCell.name)
 
+    local removeDispositionOnce = vars:get('removeDispositionOnce') or false
+    local currentCount = dispositionAppliedCells[playerCell.name] or 0
+    if removeDispositionOnce and currentCount >= 2 then
+        log("  Disposition already applied twice in this cell visit - skipping")
+        log("=== CELL DISPOSITION LOWERING SKIPPED ===")
+        return
+    end
+
+    local dispositionChange = vars:get('dispositionChange') or 15
     local count = 0
     for _, actor in ipairs(world.activeActors) do
         if actor.type == types.NPC and actor:isValid() and actor.cell == playerCell then
             local currentDisp = types.NPC.getBaseDisposition(actor, player) or 50
-            local newDisp = math.max(0, currentDisp - 15)
+            local newDisp = math.max(0, currentDisp - dispositionChange)
             log("  Lowering NPC", actor.id, "base disposition:", currentDisp, "->", newDisp)
-            types.NPC.modifyBaseDisposition(actor, player, -15)
+            types.NPC.modifyBaseDisposition(actor, player, -dispositionChange)
             count = count + 1
         end
     end
+
+    if removeDispositionOnce then
+        dispositionAppliedCells[playerCell.name] = currentCount + 1
+        log("  Marked cell as disposition-applied (count:", currentCount + 1, ") for this visit")
+    end
+
     log("  Processed", count, "NPCs in cell")
     log("=== CELL DISPOSITION LOWERING COMPLETE ===")
 end
@@ -737,6 +844,33 @@ local function onSetHello(data)
     log("═══════════════════════════════════════════════════")
 end
 
+----------------------------------------------------------------------
+-- ★★★ EVENT: Start Search Timer ★★★
+----------------------------------------------------------------------
+local function onStartSearchTimer(data)
+    if not data or not data.npcId then return end
+
+    -- Prevent creating multiple timers for the same NPC
+    if searchTimers[data.npcId] then
+        log("Search timer already exists for NPC", data.npcId, "- not creating new one")
+        return
+    end
+
+    log("STARTING SEARCH TIMER for NPC", data.npcId, "with search time:", data.searchTime, "seconds")
+
+    searchTimers[data.npcId] = {
+        startTime = core.getRealTime(),
+        endTime = core.getRealTime() + data.searchTime,
+        homePosition = data.homePosition,
+        homeRotation = data.homeRotation,
+        startPosition = data.startPosition,
+        walkRotation = data.walkRotation or 0,
+        cellName = data.cellName
+    }
+
+    log("Search timer started - NPC will return home at:", searchTimers[data.npcId].endTime)
+end
+
 log("=== GLOBAL SCRIPT LOADED SUCCESSFULLY v18.1 ===")
 
 ----------------------------------------------------------------------
@@ -753,12 +887,27 @@ return {
         AntiTheft_TeleportGuard = onTeleportGuard,
         AntiTheft_TeleportHome = onTeleportHome,
         AntiTheft_RequestCleanup = onRequestCleanup,
-        AntiTheft_LowerCellDisposition = onLowerCellDisposition
+        AntiTheft_LowerCellDisposition = onLowerCellDisposition,
+        AntiTheft_StartSearchTimer = onStartSearchTimer
     },
     engineHandlers = {
         onUpdate = function(dt)
             processPendingReturns(dt)
             updateGlobalRotations(dt)
+
+            -- Check for cell change to reset disposition tracking
+            local player = world.players[1]
+            if player and player.cell then
+                if lastPlayerCell ~= player.cell.name then
+                    if lastPlayerCell then
+                        log("Player left cell", lastPlayerCell, "- resetting disposition tracking")
+                    end
+                    lastPlayerCell = player.cell.name
+                    -- Reset disposition tracking for the new cell
+                    dispositionAppliedCells[player.cell.name] = nil
+                    log("Player entered cell", player.cell.name, "- disposition can be applied again")
+                end
+            end
 
             -- Process pending teleports
             for npcId, teleportData in pairs(pendingTeleports) do
@@ -770,8 +919,141 @@ return {
                 end
             end
 
-            -- Process 5-minute teleport timeouts
+            -- Process search timers
             local currentTime = core.getRealTime()
+            for npcId, timerData in pairs(searchTimers) do
+                if currentTime >= timerData.endTime then
+                    -- Search timer expired - start return home process
+                    log("SEARCH TIMER EXPIRED for NPC", npcId, "- starting return home")
+
+                    -- Check if player is in the same cell as the NPC
+                    local player = world.players[1]
+                    local playerCell = player and player.cell and player.cell.name or ""
+                    if timerData.cellName == playerCell then
+                        -- Player is in same cell - use real walking instead of simulation
+                        log("Player in same cell as NPC", npcId, "- using real walking to home")
+
+                        local npc = findNPC(npcId)
+                        if npc and npc:isValid() then
+                            -- Clear any existing AI packages first
+                            npc:sendEvent('RemoveAIPackages')
+
+                            -- Clear any existing pending return state to prevent duplicate blocking
+                            for i = #pendingReturns, 1, -1 do
+                                if pendingReturns[i].npcId == npcId then
+                                    table.remove(pendingReturns, i)
+                                    log("Cleared existing pending return for NPC", npcId, "due to search timer expiration")
+                                    break
+                                end
+                            end
+
+                            -- Send event to start walking home (same as onStartReturnHome)
+                            core.sendGlobalEvent('AntiTheft_StartReturnHome', {
+                                npcId = npcId,
+                                homePosition = timerData.homePosition,
+                                homeRotation = timerData.homeRotation
+                            })
+
+                            -- Clear search state in player script to prevent re-detection
+                            local player = world.players[1]
+                            if player then
+                                player:sendEvent('AntiTheft_ClearSearchState', { npcId = npcId })
+                                log("Sent clear search state event for NPC", npcId)
+                            end
+
+                            -- Clear the search timer since we're now returning home
+                            searchTimers[npcId] = nil
+                            log("Cleared search timer for NPC", npcId, "- now returning home")
+                        else
+                            log("NPC", npcId, "not found for real walking - will use simulation")
+                            -- Fall back to simulation if NPC not found
+                            if not timerData.isTraveling then
+                                log("NPC", npcId, "starting simulated travel to home position")
+
+                                -- Initialize travel simulation data
+                                searchTimers[npcId].travelStartTime = currentTime
+                                searchTimers[npcId].isTraveling = true
+
+                                -- Calculate total travel time
+                                local distance = (timerData.homePosition - timerData.startPosition):length()
+                                local travelSpeed = config.SIMULATED_TRAVEL_SPEED or 300
+                                if travelSpeed <= 0 then travelSpeed = 300 end  -- Safety check
+                                searchTimers[npcId].totalTravelTime = distance / travelSpeed
+                                searchTimers[npcId].lastProgressLog = 0
+
+                                log("NPC", npcId, "will take", string.format("%.1f", searchTimers[npcId].totalTravelTime), "seconds to reach home")
+                            end
+                        end
+                    else
+                        -- Player not in same cell - use simulation
+                        if not timerData.isTraveling then
+                            log("NPC", npcId, "starting simulated travel to home position")
+
+                            -- Initialize travel simulation data
+                            searchTimers[npcId].travelStartTime = currentTime
+                            searchTimers[npcId].isTraveling = true
+
+                            -- Calculate total travel time
+                            local distance = (timerData.homePosition - timerData.startPosition):length()
+                            local travelSpeed = config.SIMULATED_TRAVEL_SPEED or 300
+                            if travelSpeed <= 0 then travelSpeed = 300 end  -- Safety check
+                            searchTimers[npcId].totalTravelTime = distance / travelSpeed
+                            searchTimers[npcId].lastProgressLog = 0
+
+                            log("NPC", npcId, "will take", string.format("%.1f", searchTimers[npcId].totalTravelTime), "seconds to reach home")
+                        end
+                    end
+                else
+                    -- Search timer still running - check if player returned to cell
+                    local player = world.players[1]
+                    local playerCell = player and player.cell and player.cell.name or ""
+                    if timerData.cellName == playerCell and not timerData.playerReturned then
+                        -- Player just returned to the cell while NPC is searching
+                        log("Player returned to cell", playerCell, "while NPC", npcId, "is searching - NPC will finish search and walk home")
+                        timerData.playerReturned = true
+                    end
+                end
+
+                -- Continue simulated travel (always runs once started)
+                if timerData.isTraveling then
+                    local timeSinceTravelStart = currentTime - timerData.travelStartTime
+                    local progress = math.min(timeSinceTravelStart / timerData.totalTravelTime, 1.0)
+
+                    if progress >= 1.0 then
+                        -- NPC has arrived home via simulation - teleport to final position
+                        log("NPC", npcId, "has arrived home via simulation - teleporting to home position")
+                        pendingTeleports[npcId] = {
+                            homePosition = timerData.homePosition,
+                            homeRotation = timerData.homeRotation
+                        }
+                        searchTimers[npcId] = nil
+                    else
+                        -- Update simulated position for when NPC loads
+                        local currentPos = timerData.startPosition + (timerData.homePosition - timerData.startPosition) * progress
+                        local distance = (timerData.homePosition - timerData.startPosition):length()
+                        local distanceRemaining = math.floor(distance * (1 - progress))
+
+                        -- Log progress periodically
+                        if currentTime - timerData.lastProgressLog >= 1.0 then  -- Log every second
+                            log("NPC", npcId, "travel progress:", string.format("%.1f%%", progress * 100),
+                                "current pos:", currentPos, "distance remaining:", distanceRemaining)
+                            timerData.lastProgressLog = currentTime
+                        end
+
+                        -- Store current travel state for when NPC loads
+                        pendingTeleports[npcId] = {
+                            currentPosition = currentPos,
+                            homePosition = timerData.homePosition,
+                            homeRotation = timerData.homeRotation,
+                            walkRotation = timerData.walkRotation or 0,
+                            cellName = timerData.cellName,
+                            isSimulationOngoing = true
+                        }
+                    end
+                end
+            end
+
+            -- Process 5-minute teleport timeouts
             for npcId, timeoutData in pairs(teleportTimeouts) do
                 if currentTime >= timeoutData.timeoutTime then
                     log("5-minute timeout reached for NPC", npcId, "- teleporting to default position")
