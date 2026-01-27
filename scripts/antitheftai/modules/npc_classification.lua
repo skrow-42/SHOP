@@ -234,6 +234,26 @@ function classification.isNpcDisabled(npc, disabledNpcNames, types)
         if lowerName:find(contains, 1, true) then return true end
     end
 
+    -- Check for Travel service - completely ignore these NPCs
+    -- This prevents Silt Strider caravaners, Boat masters, and Guild Guides from following
+    if types and types.NPC and types.NPC.getServicesOffered then
+         local services = types.NPC.getServicesOffered(npc)
+         if services and services.Travel then
+             log("Disabling script for NPC with Travel service:", npc.id)
+             return true
+         end
+    end
+
+    -- Fallback class name check for Travel providers
+    local npcClass = types.NPC.record(npc).class
+    if npcClass then
+        local lowerClass = npcClass:lower()
+        if lowerClass:find("caravaner") or lowerClass:find("shipmaster") or lowerClass:find("guild guide") or lowerClass:find("gondolier") then
+             log("Disabling script for NPC with Travel class:", lowerClass)
+             return true
+        end
+    end
+
     -- Check for chargen NPCs if setting is enabled
     local settings = require('scripts.antitheftai.SHOPsettings')
     local enabled = settings.compatibility:get('disableScriptOnChargenNPCs')
@@ -310,7 +330,7 @@ function classification.shouldDisableCellForPublican(nearby, types)
     for _, actor in ipairs(nearby.actors) do
         if actor.type == types.NPC then
             local record = types.NPC.record(actor)
-            if record and record.class and (record.class:lower() == "publican" or record.class:lower() == "t_glb_publican" or record.class:lower() == "guild guide") then
+            if record and record.class and (record.class:lower() == "publican" or record.class:lower() == "t_glb_publican") then
                 return true
             end
         end

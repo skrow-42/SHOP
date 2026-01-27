@@ -1,3 +1,5 @@
+NPC: scripts/sleep_npc_script.lua
+GLOBAL: scripts/sleep_npc_script_global.lua
 PLAYER: scripts/antitheftai/AntiTheft_Player.lua
 PLAYER: scripts/antitheftai/player_settings.lua
 GLOBAL: scripts/antitheftai/AntiTheft_Global.lua

@@ -23,6 +23,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 local config      = require('scripts.antitheftai.modules.config')
 local omwStorage  = require('openmw.storage')
 local async       = require('openmw.async')
+local core        = require('openmw.core')
 local settings     = require('scripts.antitheftai.SHOPsettings')
 local utils       = require('scripts.antitheftai.modules.utils')
 local storage     = require('scripts.antitheftai.modules.storage')   -- module version
@@ -33,6 +34,7 @@ local pathModule  = require('scripts.antitheftai.modules.path_recording')
 local doorModule  = require('scripts.antitheftai.modules.door_transitions')
 local state = require('scripts.antitheftai.modules.state')
 local types = require('openmw.types')
+local ui = require('openmw.ui')
 
 -- Local hardcoded NPC voice response table based on race and gender
 local guardActions = require('scripts.antitheftai.modules.guard_actions')
@@ -57,14 +59,37 @@ local pendingWitnessAttacks = {}    -- npcId -> boolean (true if we expect this 
 ----------------------------------------------------------------------
 
 local seenMessages = {}
-local debugEnabled = settings.general:get('enableDebug')  -- initial value
+local globalDebugEnabled = settings.general:get('enableGlobalDebug') -- For door logs as requested
+local masterLoggingEnabled = settings.general:get('enableLogging')
+if masterLoggingEnabled == nil then masterLoggingEnabled = true end
+config.STUN_CHANCE_DISPLAY = settings.general:get('stunChanceDisplay') or 'off'
+config.ADD_STUN_SUFFIX = settings.general:get('addStunChanceSuffix') or false
 
 -- refresh when the storage section changes (option toggled in MCM)
 settings.general:subscribe(async:callback(function(_, key)
-    if key == nil or key == 'enableDebug' then
-        debugEnabled = settings.general:get('enableDebug')
-        print(('[AntiTheft-Player] debug %s'):format(debugEnabled and 'enabled' or 'disabled'))
+    -- Log handling is now direct, no local variable needed
+    
+    -- Sync to Global/NPCs
+    if key then
+        local val = settings.general:get(key)
+        core.sendGlobalEvent('AntiTheft_SyncSetting', { group = 'general', key = key, value = val })
+    elseif key == nil then
+        -- Sync all essential keys if nil (changed all or init?)
+        local keys = {'enableDebug', 'enableGlobalDebug', 'enableBlackjackSpawning', 'enableLogging', 'enableDoorMechanics'}
+        for _, k in ipairs(keys) do
+            core.sendGlobalEvent('AntiTheft_SyncSetting', { group = 'general', key = k, value = settings.general:get(k) })
+        end
     end
+
+    if key == nil or key == 'enableGlobalDebug' then
+        globalDebugEnabled = settings.general:get('enableGlobalDebug')
+    end
+    if key == nil or key == 'enableLogging' then
+        masterLoggingEnabled = settings.general:get('enableLogging')
+        if masterLoggingEnabled == nil then masterLoggingEnabled = true end
+    end
+    if key == nil or key == 'stunChanceDisplay' then config.STUN_CHANCE_DISPLAY = settings.general:get('stunChanceDisplay') or 'off' end
+    if key == nil or key == 'addStunChanceSuffix' then config.ADD_STUN_SUFFIX = settings.general:get('addStunChanceSuffix') or false end
 end))
 
 -- Update config values when settings change
@@ -92,13 +117,16 @@ settings.vars:subscribe(async:callback(function(_, key)
     if key == nil or key == 'losHalfCone' then config.LOS_HALF_CONE = math.rad(settings.vars:get('losHalfCone') or 170) end
     if key == nil or key == 'chamHideLimit' then config.CHAM_HIDE_LIMIT = settings.vars:get('chamHideLimit') or 1 end
     if key == nil or key == 'disableHelloWhileFollowing' then config.DISABLE_HELLO_WHILE_FOLLOWING = settings.vars:get('disableHelloWhileFollowing') or true end
-    if key == nil or key == 'factionIgnoreRank' then config.FACTION_IGNORE_RANK = settings.vars:get('factionIgnoreRank') or 5 end
     if key == nil or key == 'dispositionFollowingIgnore' then config.DISPOSITION_FOLLOWING_IGNORE = settings.vars:get('dispositionFollowingIgnore') or 100 end
     if key == nil or key == 'simulatedTravelSpeed' then config.SIMULATED_TRAVEL_SPEED = settings.vars:get('simulatedTravelSpeed') or 300.0 end
 end))
 
 settings.distances:subscribe(async:callback(function(_, key)
     if key == nil or key == 'detectionRange' then config.DETECTION_RANGE = settings.distances:get('detectionRange') or 75.0 end
+end))
+
+settings.bounties:subscribe(async:callback(function(_, key)
+    if key == nil or key == 'lockingDoorBounty' then config.LOCKING_DOOR_BOUNTY = settings.bounties:get('lockingDoorBounty') or 150 end
 end))
 
 ----------------------------------------------------------------------
@@ -108,11 +136,13 @@ end))
 local function safeRequire(moduleName)
     local success, module = pcall(require, moduleName)
     if not success then
-        print('[AntiTheft-Player] ERROR: Failed to load', moduleName, ':', module)
+        log('[AntiTheft-Player] Error loading module ' .. moduleName .. ': ' .. tostring(module))
         return nil
     end
     return module
 end
+
+
 
 local self   = safeRequire('openmw.self')
 local nearby = safeRequire('openmw.nearby')
@@ -122,6 +152,7 @@ local core   = safeRequire('openmw.core')
 local I      = safeRequire('openmw.interfaces')
 local input  = safeRequire('openmw.input')
 local ui     = safeRequire('openmw.ui')
+local camera = safeRequire('openmw.camera')
 
 if not (self and nearby and types and util and core) then
     error('[AntiTheft-Player] CRITICAL: Required modules failed to load!')
@@ -133,7 +164,7 @@ end
 
 local function log(...)
     -- PERFORMANCE: Early exit if debug is disabled (saves ~1500 ops/sec)
-    if not debugEnabled then return end
+    if not masterLoggingEnabled or not (settings.general and settings.general:get('enableDebug')) then return end
     
     -- Only do string conversion and logging if debug is actually enabled
     local args = { ... }
@@ -144,13 +175,26 @@ local function log(...)
     end
     
     local msg = table.concat(args, ' ')
-    if not seenMessages[msg] then
-        print('[AntiTheft-Player]', table.unpack(args))
-        seenMessages[msg] = true
+    -- Note: reusing seenMessages logic if desired, or just print
+    -- The simple log I added earlier uses print directly.
+    -- I'll use print consistent with previous changes.
+    print('[AntiTheft-Player] ' .. msg)
+end
+
+-- Helper: Door Debug Logging (Controlled by enableGlobalDebug)
+local function doorLog(...)
+    if masterLoggingEnabled and globalDebugEnabled then
+        print('[AntiTheft-Player] [DOOR]', ...)
     end
 end
 
-
+-- Initial Settings Sync (Ensure Global Scripts/NPCs match Player Settings)
+local keys = {'enableDebug', 'enableGlobalDebug', 'enableBlackjackSpawning', 'enableLogging', 'enableDoorMechanics'}
+for _, k in ipairs(keys) do
+    if settings.general then
+        core.sendGlobalEvent('AntiTheft_SyncSetting', { group = 'general', key = k, value = settings.general:get(k) })
+    end
+end
 
 log('=== SCRIPT LOADING STARTED v20.0 - MODULAR ===')
 log('All required modules loaded successfully')
@@ -183,7 +227,7 @@ local function getActiveSpellEffect(actor, effectId)
     return nil
 end
 
--- When we have a recruited guard, print the remaining time of the two
+-- When we have a recruited guard, log the remaining time of the two
 -- "stealth" effects once per call.  (Called from the two places you
 -- already examine the durations.)
 local function debugPrintStealthDurations()
@@ -335,8 +379,18 @@ local function pickGuard(allowCurrentGuard)
 end
 
 ----------------------------------------------------------------------
--- Event Handlers
+-- UI Feedback Loop (Stun Chance)
 ----------------------------------------------------------------------
+local lastStunUpdate = 0
+local STUN_UPDATE_INTERVAL = 0.5 -- Check 2 times per second (User Requested)
+local lastStunMessage = nil
+
+
+
+local lastStunMessageTime = 0
+local MESSAGE_COOLDOWN = 5.0 -- Show message once every 5 seconds if condition persists
+
+
 
 local function onNPCReady(eventData)
     if eventData and eventData.npcId then
@@ -428,6 +482,13 @@ end
 
 local function onS3CombatTargetAdded(eventData)
     log("DEBUG: S3CombatTargetAdded event received, actor:", eventData and eventData.id or "nil")
+    
+    -- Relay event to the actor so they can handle local logic (like Flee Silence application)
+    if eventData and eventData.sendEvent then
+        eventData:sendEvent('AntiTheft_FleeConfirm')
+        log("DEBUG: Relayed AntiTheft_FleeConfirm to actor", eventData.id)
+    end
+
     -- eventData is the actor that entered combat
     if eventData and state.guard and state.guard.id == eventData.id and state.following then
         -- Check if the NPC is fighting the player by checking the player's combat targets
@@ -530,9 +591,87 @@ local LOCK_EFFECT_IDS = {
     'lock lock'
 }
 
+-- Helper to determine if NPC is a guard
+local function isGuard(npc)
+    if not npc then return false end
+    local record = types.NPC.record(npc)
+    if not (record and record.class) then return false end
+    local class = record.class:lower()
+    return class:find("guard") or class:find("ordinator") or class:find("buoyant")
+end
+
+-- Centralized function to handle NPC travel/investigation (Replacing old Travel script behavior)
+local function onForceTravelToPlayer(data)
+    if not data or not data.npcId then return end
+    local npc = world.getObjectByFormId(data.npcId)
+    if not npc or npc.type ~= types.NPC then return end
+
+    if isGuard(npc) then
+         log("[FORCE TRAVEL] NPC", npc.id, "is GUARD - Applying bounty and investigating (Travel to player)")
+         
+         -- 1. Apply Bounty (Configurable)
+         local race, gender = nil, nil
+         local record = types.NPC.record(npc)
+         if record then
+             local rawRace = record.race and record.race.id and record.race.id:lower() or nil
+             race = rawRace
+             gender = record.isMale -- boolean
+         end
+         
+         
+         -- 2. Initiate Investigation (Request Pursue via Global Event)
+         -- "Pursue must be applied after adding bounty, not before."
+         -- We send the flag to Global script to trigger Pursue AFTER bounty application.
+         
+         local amount = config.LOCKING_DOOR_BOUNTY or 150
+         if amount > 0 then
+             core.sendGlobalEvent('AntiTheft_SetPlayerBounty', {
+                bountyAmount = amount,
+                reason = "Unlocking door while observed",
+                npcId = npc.id,
+                npcRace = race,
+                npcGender = gender,
+                forcePursue = true -- Flag to tell Global to trigger Pursue
+             })
+             log("✓ Sent Bounty event with forcePursue flag to Global")
+         else
+            -- If no bounty, we might still want to pursue?
+            -- Assuming yes if "guard detecting crime".
+             core.sendGlobalEvent('AntiTheft_SetPlayerBounty', {
+                bountyAmount = 0,
+                npcId = npc.id,
+                npcRace = race,
+                npcGender = gender,
+                forcePursue = true
+             })
+             log("✓ Sent Zero-Bounty event with forcePursue flag (Config=0)")
+         end
+         
+         -- No local package start - waiting for Global to do it
+         
+    else
+        log("[FORCE TRAVEL] NPC", npc.id, "is CIVILIAN - Playing bed voice instead of traveling")
+        local record = types.NPC.record(npc)
+        if record then
+             local race = record.race and record.race.id and record.race.id:lower() or "dark elf"
+             local gender = record.isMale and "male" or "female"
+             
+             -- Send to global for sound playback (using bed_voices module)
+             core.sendGlobalEvent('AntiTheft_PlayCivilianUnlockSound', {
+                npcId = npc.id,
+                race = race,
+                gender = gender
+             })
+             log("✓ Sent sound request to global")
+        end
+    end
+end
+
 -- Initialize door states when entering interior cell
 local function initializeDoorStates()
-    log("[DOOR STATE] === INITIALIZING DOOR STATES ===")
+    if not settings.general:get('enableDoorMechanics') then return end
+
+    doorLog("=== INITIALIZING DOOR STATES ===")
     doorStates = {}
     local doorCount = 0
     local unlockedDoors = 0
@@ -557,9 +696,9 @@ local function initializeDoorStates()
                     lastCheckTime = core.getRealTime()
                 }
                 unlockedDoors = unlockedDoors + 1
-                log("[DOOR STATE] Tracking unlocked door", doorId, "- state =", doorState, "- lock level =", lockLevel)
+                doorLog("Tracking unlocked door", doorId, "- state =", doorState, "- lock level =", lockLevel)
             else
-                log("[DOOR STATE] Skipping door", doorId, "- locked =", isLocked, "- state =", doorState)
+                doorLog("Skipping door", doorId, "- locked =", isLocked, "- state =", doorState)
             end
             doorCount = doorCount + 1
         end
@@ -568,7 +707,9 @@ local function initializeDoorStates()
 end
 -- Check for door state changes and apply bounty if conditions met
 local function checkDoorStateChanges()
-    log("[DOOR STATE] === CHECKING DOOR STATE CHANGES ===")
+    if not settings.general:get('enableDoorMechanics') then return end
+
+    doorLog("=== CHECKING DOOR STATE CHANGES ===")
 
     -- Debug: Check if we're in the right cell type
     local isInterior = self.cell and not self.cell.isExterior
@@ -643,19 +784,22 @@ local function checkDoorStateChanges()
                 -- Check if door was unlocked and is now locked
                 if not doorData.wasLocked and isLocked then
                     doorsLocked = doorsLocked + 1
-                    log("[DOOR STATE] Door", doorId, "(", doorName, ") was unlocked, now locked - LOCK DETECTED!")
+                    doorLog("Door", doorId, "(", doorName, ") was unlocked, now locked - LOCK DETECTED!")
 
                     -- Sync with global script - let global script handle unlock sequences and bounty
                     core.sendGlobalEvent('AntiTheft_UpdateDoorLockState', {
                         doorId = doorId,
                         lockLevel = lockLevel
                     })
-                    log("[DOOR STATE] Sent lock state update to global script - global script will handle unlock sequence and bounty")
+                    doorLog("Sent lock state update to global script - global script will handle unlock sequence and bounty")
                 elseif doorData.wasLocked and not isLocked then
                     log("[DOOR STATE] Door", doorId, "(", doorName, ") was locked, now unlocked - UNLOCK DETECTED")
-                    -- Play unlock sound for the following NPC guard if applicable
+                    -- Trigger ForceTravelToPlayer logic (which handles Guard vs Civilian split now)
                     if state.guard and state.guard:isValid() and state.following then
-                        playNpcUnlockSound(state.guard)
+                        onForceTravelToPlayer({
+                            npcId = state.guard.id,
+                            playerPosition = self.position
+                        })
                     end
 
                     -- Sync with global script
@@ -664,7 +808,7 @@ local function checkDoorStateChanges()
                         lockLevel = 0
                     })
                 else
-                    log("[DOOR STATE] Door", doorId, "(", doorName, ") state unchanged - locked =", isLocked)
+                    doorLog("Door", doorId, "(", doorName, ") state unchanged - locked =", isLocked)
                 end
 
                 -- Update door state
@@ -674,16 +818,16 @@ local function checkDoorStateChanges()
                 }
             else
                 -- New door discovered after cell load, initialize it
-                log("[DOOR STATE] New door detected, initializing:", doorId, "(", doorName, ")")
+                doorLog("New door detected, initializing:", doorId, "(", doorName, ")")
                 doorStates[doorId] = {
                     wasLocked = isLocked,  -- Initialize with current state to prevent false triggering
                     lastCheckTime = currentTime
                 }
                 
                 if isLocked then
-                    log("[DOOR STATE] New door is already locked - will not trigger unlock (not player-locked)")
+                    doorLog("New door is already locked - will not trigger unlock (not player-locked)")
                 else
-                    log("[DOOR STATE] New door is unlocked - tracking for future lock changes")
+                    doorLog("New door is unlocked - tracking for future lock changes")
                 end
 
                 -- Do NOT sync with global script on initialization
@@ -716,7 +860,7 @@ local function checkDoorStateChanges()
             local lockLevel = types.Lockable.getLockLevel(actor)
             local doorState = types.Door.getDoorState(actor)
 
-            log("[DOOR STATE] Found door in actors", doorId, "- name:", doorName, "- record id:", doorRecordId, "- locked =", isLocked, "- lock level =", lockLevel, "- state =", doorState)
+            doorLog("Found door in actors", doorId, "- name:", doorName, "- record id:", doorRecordId, "- locked =", isLocked, "- lock level =", lockLevel, "- state =", doorState)
 
             local doorData = doorStates[doorId]
 
@@ -731,12 +875,12 @@ local function checkDoorStateChanges()
                         doorId = doorId,
                         lockLevel = lockLevel
                     })
-                    log("[DOOR STATE] Sent lock state update to global script - global script will handle unlock sequence")
+                    doorLog("Sent lock state update to global script - global script will handle unlock sequence")
                 elseif doorData.wasLocked and not isLocked then
-                    log("[DOOR STATE] Door", doorId, "(", doorName, ") was locked, now unlocked - UNLOCK DETECTED")
+                    doorLog("Door", doorId, "(", doorName, ") was locked, now unlocked - UNLOCK DETECTED")
                     -- Play unlock sound for the following NPC guard if applicable
-                    if state.guard and state.guard:isValid() and state.following then
-                        playNpcUnlockSound(state.guard)
+                     if state.guard and state.guard:isValid() and state.following then
+                       playNpcUnlockSound(state.guard)
                     end
 
                     -- Sync with global script
@@ -745,7 +889,7 @@ local function checkDoorStateChanges()
                         lockLevel = 0
                     })
                 else
-                    log("[DOOR STATE] Door", doorId, "(", doorName, ") state unchanged - locked =", isLocked)
+                    doorLog("Door", doorId, "(", doorName, ") state unchanged - locked =", isLocked)
                 end
 
                 -- Update door state
@@ -755,16 +899,16 @@ local function checkDoorStateChanges()
                 }
             else
                 -- New door discovered after cell load, initialize it
-                log("[DOOR STATE] New door detected, initializing:", doorId, "(", doorName, ")")
+                doorLog("New door detected, initializing:", doorId, "(", doorName, ")")
                 doorStates[doorId] = {
                     wasLocked = isLocked,  -- Initialize with current state to prevent false triggering
                     lastCheckTime = currentTime
                 }
                 
                 if isLocked then
-                    log("[DOOR STATE] New door is already locked - will not trigger unlock (not player-locked)")
+                    doorLog("New door is already locked - will not trigger unlock (not player-locked)")
                 else
-                    log("[DOOR STATE] New door is unlocked - tracking for future lock changes")
+                    doorLog("New door is unlocked - tracking for future lock changes")
                 end
 
                 -- Do NOT sync with global script on initialization
@@ -773,7 +917,7 @@ local function checkDoorStateChanges()
         end
     end
 
-    log("[DOOR STATE] === CHECK COMPLETE - Total doors:", totalDoors, "- Doors locked this check:", doorsLocked, "===")
+    doorLog("=== CHECK COMPLETE - Total doors:", totalDoors, "- Doors locked this check:", doorsLocked, "===")
 end
 -- Detect teleport effects applied to player and teleport guard home immediately
 local function onMagicEffectApplied(effectId, magnitude, effect)
@@ -859,7 +1003,7 @@ local preCastDoorStates = {}
 
 -- Delayed callback for lock spell success verification
 local function checkLockSpellSuccess()
-    log("[LOCK SPELL] Checking if lock spell was successful...")
+    doorLog("[LOCK SPELL] Checking if lock spell was successful...")
 
     local lockedDoors = 0
     local totalCheckedDoors = 0
@@ -875,18 +1019,18 @@ local function checkLockSpellSuccess()
 
             if wasUnlocked and isLocked then
                 lockedDoors = lockedDoors + 1
-                log("[LOCK SPELL] Door", doorId, "was unlocked before spell, now locked - SUCCESS!")
+                doorLog("[LOCK SPELL] Door", doorId, "was unlocked before spell, now locked - SUCCESS!")
                 -- Store position of first locked door
                 if not lockedDoorPos then
                     lockedDoorPos = actor.position
                 end
             elseif wasUnlocked and not isLocked then
-                log("[LOCK SPELL] Door", doorId, "was unlocked before spell, still unlocked - no change")
+                doorLog("[LOCK SPELL] Door", doorId, "was unlocked before spell, still unlocked - no change")
             end
         end
     end
 
-    log("[LOCK SPELL] Checked", totalCheckedDoors, "doors, found", lockedDoors, "newly locked doors")
+    doorLog("[LOCK SPELL] Checked", totalCheckedDoors, "doors, found", lockedDoors, "newly locked doors")
 
     -- Clear the pre-cast states
     preCastDoorStates = {}
@@ -1065,9 +1209,10 @@ local function playNpcVoiceResponse(npc)
 end
 
 local function onApplyDoorBounty(data)
-    if not data or not data.bountyAmount then return end
-
-    log("[DOOR BOUNTY] Applying door bounty:", data.bountyAmount, "gold")
+    if not data then return end -- data.bountyAmount check removed as we override it
+    
+    local bountyAmount = settings.bounties:get('lockingDoorBounty')
+    log("[DOOR BOUNTY] Applying door bounty:", bountyAmount, "gold (Config)")
 
     -- Check if there's a valid guard following - if not, skip bounty application
     if not state.guard or not state.guard:isValid() then
@@ -1102,7 +1247,7 @@ local function onApplyDoorBounty(data)
     -- The global script will handle the actual bounty modification and investigation
     core.sendGlobalEvent('AntiTheft_SetPlayerBounty', {
         player = self,
-        bountyAmount = data.bountyAmount,
+        bountyAmount = bountyAmount, -- Use config value
         reason = "Door interaction while being followed",
         doorX = data.doorX,
         doorY = data.doorY,
@@ -1118,10 +1263,19 @@ local function onApplyDoorBounty(data)
 
     -- Show message to player
     self:sendEvent('ShowMessage', {
-        message = "You have been caught interacting with doors while being followed! Bounty increased by " .. data.bountyAmount .. " gold."
+        message = "You have been caught interacting with doors while being followed! Bounty increased by " .. bountyAmount .. " gold."
     })
 
     log("✓ Door bounty event sent to global script")
+
+    -- Trigger investigation/pursue behavior (Guard vs Civilian logic)
+    -- This ensures the guard reacts immediately to the locking action
+    if state.guard and state.guard:isValid() then
+        onForceTravelToPlayer({
+            npcId = state.guard.id,
+            playerPosition = self.position
+        })
+    end
 end
 
 -- Event handler for starting door investigation
@@ -1174,7 +1328,186 @@ end
 -- Main Update Loop
 ----------------------------------------------------------------------
 
+local STUN_MSGS_LOW = {
+    "This person will not go down easily.",
+    "It is unlikely you will surprise this one.",
+    "This one will be hard to bring down.",
+    "This person is not easy to take down.",
+    "You feel you are too weak for this one.",
+    "It's a tough one.",
+    "This person is not easy to take down.",
+    "Another time, perhaps.",
+    "Just walk away.",
+    "It's better to not try your luck this time.",
+    "This seems like a bad move.",
+    "This person is not easy to take down.",
+    "This plan is bound to fail.",
+    "No. Just no.",
+    "Tread carefully. This is a hard one.",
+    "This person is not easy to take down.",
+    "Here's a hard one.",
+    "Don't try your luck.",
+    "You're in for a fight.",
+    "Hope is the first step on a road to disappointment."
+}
+local STUN_MSGS_MED = {
+    "There's always a chance.",
+    "This could work.",
+    "Maybe. Maybe not. You decide.",
+    "You have a fair chance.",
+    "You have a good chance.",
+    "Might be worth a try.",
+    "The odds aren't terrible.",
+    "A careful swing might do it.",
+    "Fifty-fifty if you're quick.",
+    "This one could go either way.",
+    "You've got a fighting chance.",
+    "Not a sure thing, but not impossible.",
+    "A solid 'maybe'.",
+    "Luck might be on your side.",
+    "It could happen with good timing.",
+    "Better than even odds.",
+    "This one looks half-asleep already.",
+    "Feels like a coin toss in your favor.",
+    "A quiet takedown is definitely possible.",
+    "You've knocked out tougher ones."
+}
+local STUN_MSGS_HIGH = {
+"You have a very good chance.",
+    "It looks easy.",
+    "This one's begging to be blackjacked.",
+    "Easy prey.",
+    "That one won't even feel it coming.",
+    "Perfect setup for a knockout.",
+    "Couldn't ask for a better angle.",
+    "Piece of cake.",
+    "Too easy.",
+    "One swing and it's lights out.",
+    "This one's not paying attention.",
+    "This is why you carry the blackjack.",
+    "It's now or never!",
+    "Now is your moment.",
+    "Perfect target, perfect moment.",
+    "The shadows are with you on this one."
+}
+
 local function onUpdate(dt)
+    -- HEARTBEAT (Removed to prevent spam)
+    -- log("[DEBUG-UI] onUpdate Running (Merged)")
+
+    -- UI FEEDBACK LOGIC (Throttled)
+    local currentTime = core.getRealTime()
+    if currentTime - lastStunUpdate >= STUN_UPDATE_INTERVAL then
+         lastStunUpdate = currentTime
+         
+         -- Cooldown Skip: If recently showed message, skip all checks
+         if currentTime - lastStunMessageTime < MESSAGE_COOLDOWN then return end
+         
+            -- Check Conditions Nested (No Returns)
+            local validStance = types.Actor.getStance(self) == types.Actor.STANCE.Weapon
+            local validWeapon = false
+            local weaponRecord = nil
+
+            if validStance then
+                local equipment = types.Actor.getEquipment(self)
+                local weapon = equipment[types.Actor.EQUIPMENT_SLOT.CarriedRight] 
+                if weapon then
+                     weaponRecord = types.Weapon.record(weapon)
+                     if weaponRecord and weaponRecord.id and weaponRecord.id:lower():find("blackjack") then
+                        validWeapon = true
+                     end
+                end
+            end
+
+            if validWeapon then
+                -- Raycast Attempt (Using Player Rotation as fallback for reliability)
+                local camPos = camera.getPosition()
+                local rot = self.rotation 
+                local forward = rot:apply(util.vector3(0, 1, 0))
+                
+                local reach = weaponRecord.reach or 1.0
+                local dist = reach * 200 
+                local endPos = camPos + (forward * dist)
+                
+                -- Helper to warn once per session about disabled setting
+                if config.STUN_CHANCE_DISPLAY == 'off' then
+                   if not state.warnedAboutStunSetting then
+                       log("[AntiTheft] Stun Chance Display is OFF in settings. Enable it in Mod Options to see probabilities.")
+                       state.warnedAboutStunSetting = true
+                   end
+                   return 
+                end
+                
+                local ray = nearby.castRay(camPos, endPos, {
+                    collisionType = nearby.COLLISION_TYPE.World + nearby.COLLISION_TYPE.Actor, 
+                    ignore = self
+                })
+
+                if ray.hit then
+                    if ray.hitObject and ray.hitObject.type == types.NPC then
+                        local npc = ray.hitObject
+                        -- Check Angle
+                        local npcPos = npc.position
+                        local npcRot = npc.rotation
+                        local npcForward = npcRot:apply(util.vector3(0, 1, 0))
+                        local npcForwardNorm = util.vector3(npcForward.x, npcForward.y, 0):normalize()
+                        local attPos = self.position
+                        local toAttacker = util.vector3(attPos.x - npcPos.x, attPos.y - npcPos.y, 0):normalize()
+                        local dotProduct = npcForwardNorm:dot(toAttacker)
+                        local isFromBehind = dotProduct < -0.1
+
+                        if isFromBehind then
+                             if currentTime - lastStunMessageTime >= MESSAGE_COOLDOWN then
+                                log("CONDITION MET. Calculating chance...")
+                                local mechanics = require('scripts.antitheftai.modules.blackjack_mechanics')
+                                local chance = mechanics.calculateStunChance(self, npc)
+                                log("Chance:", chance)
+                                
+                                local msg = ""
+                                if config.STUN_CHANCE_DISPLAY == 'exact' then
+                                    msg = string.format("Stun Chance: %.0f%%", chance)
+                                elseif config.STUN_CHANCE_DISPLAY == 'contextual' then
+                                    if chance <= 1.0 then
+                                        msg = "You would have a better chance asking Almalexia out for a date than knocking this one out."
+                                    else
+                                        local msgs
+                                        local suffix = ""
+                                        if chance < 30 then 
+                                            msgs = STUN_MSGS_LOW
+                                            if config.ADD_STUN_SUFFIX then suffix = " - (Low)" end
+                                        elseif chance < 70 then 
+                                            msgs = STUN_MSGS_MED
+                                            if config.ADD_STUN_SUFFIX then suffix = " - (Medium)" end
+                                        else 
+                                            msgs = STUN_MSGS_HIGH
+                                            if config.ADD_STUN_SUFFIX then suffix = " - (High)" end
+                                        end
+                                        msg = msgs[math.random(#msgs)] .. suffix
+                                    end
+                                end
+                                
+
+                                if msg ~= "" then
+                                    log("Showing Message (Direct UI):", msg)
+                                    ui.showMessage(msg)
+                                    lastStunMessageTime = currentTime
+                                end
+                             else
+                                -- Cooldown active
+                             end
+                        else
+                             log("Not from behind. Dot:", dotProduct)
+                        end
+                    else
+                         log("Ray hit object but NOT NPC or NO Object")
+                    end
+                else
+                    log("Raycast miss. Dist:", dist)
+                end
+            else
+                -- log("[DEBUG-UI] Invalid Weapon/Stance")
+            end
+    end
     -- ====================================================================
     -- PERFORMANCE: Early exit for non-whitelisted exterior cells
     -- This prevents ALL processing in exteriors (unless whitelisted)
@@ -1255,7 +1588,7 @@ local function onUpdate(dt)
                     
                     -- Apply bounty via global event
                     core.sendGlobalEvent('AntiTheft_ApplyLockSpellBounty', {
-                        bountyAmount = monitorData.bountyAmount,
+                        bountyAmount = settings.bounties:get('lockingDoorBounty'), -- Force config value
                         hasFollowingNPC = hasFollowing,
                         playerPosition = self.position,
                         npcId = monitorData.npcId,
@@ -2278,35 +2611,7 @@ local function onUpdate(dt)
                 end
             else
                 -- Handle Pending Arrests (Force Dialogue) from AntiTheft_ExpectArrest
-                if state.pendingArrests then
-                    local rt = core.getRealTime()
-                    for npcId, timestamp in pairs(state.pendingArrests) do
-                        -- Timeout 15s
-                        if rt - timestamp > 15 then
-                            state.pendingArrests[npcId] = nil
-                        else
-                            -- Check if guard is close enough to interact
-                            -- Scan nearby actors to find the guard object
-                            local found = false
-                            for _, actor in ipairs(nearby.actors) do
-                                if actor.id == npcId then
-                                    found = true
-                                    local dist = (actor.position - self.position):length()
-                                    if dist < 250 then
-                                        log("[ARREST LOGIC] Guard", npcId, "is close ("..math.floor(dist).."u). Forcing dialogue to initiate arrest.")
-                                        if I.Activation then
-                                            I.Activation.activate(actor)
-                                        else
-                                            print("[AntiTheft-Player] Error: I.Activation interface not available")
-                                        end
-                                        state.pendingArrests[npcId] = nil
-                                    end
-                                    break
-                                end
-                            end
-                        end
-                    end
-                end
+
 
                 state.tRefresh = state.tRefresh + dt
                 if state.tRefresh >= config.UPDATE_PERIOD then
@@ -2640,12 +2945,12 @@ local vEye   = util.vector3(0, 0, 90)
 -- Door detection on Activate key press
 local function onInputAction(action)
     if action == input.ACTION.Activate then
-        log("[DOOR DETECTION] Activate key pressed - sending detection event to global script")
+        log("Activate key pressed - sending detection event to global script")
         core.sendGlobalEvent('AntiTheft_DoorDetection', {})
     end
     
     if action == input.ACTION.Use then
-        log("[DOOR DETECTION] Use key pressed - triggering global door detection")
+        log("Use key pressed - triggering global door detection")
 
         -- Send event to global script to check for door lock changes
         core.sendGlobalEvent('AntiTheft_CheckDoorLocks', {
@@ -2654,7 +2959,7 @@ local function onInputAction(action)
 
         doorStatesRecorded = false  -- Reset flag after use
 
-        log("[DOOR DETECTION] Global door detection triggered")
+        log("Global door detection triggered")
         
         -- CRITICAL FIX: Run door check in async callback to avoid blocking input
         -- Direct synchronous check was freezing camera
@@ -2669,6 +2974,8 @@ local function onInputAction(action)
     -- Returning a value would consume the input and break camera/controls
 end
 
+
+log("[DEBUG-UI] Script Reached Return Block - Handlers Registered")
 return {
     engineHandlers = {
          onUpdate = onUpdate,
@@ -2699,18 +3006,7 @@ return {
                 actions.startSearch(state, detection, config)
             end
         end,
-        AntiTheft_ForceTravelToPlayer = function(data)
-            if not data or not data.npcId then return end
-            local npc = world.getObjectByFormId(data.npcId)
-            if npc and npc.type == types.NPC then
-                log("[FORCE TRAVEL] Sending NPC", data.npcId, "to travel to player position")
-                npc:sendEvent('StartAIPackage', {
-                    type = 'Travel',
-                    destPosition = data.playerPosition,
-                    cancelOther = false
-                })
-            end
-        end,
+        AntiTheft_ForceTravelToPlayer = onForceTravelToPlayer,
         AntiTheft_StartLOSMonitoring = function(data)
             if not (data and data.npcId and data.bountyAmount and data.doorId) then 
                 log("[LOS MONITORING] Invalid data received")
@@ -2740,11 +3036,32 @@ return {
         -- Relay events from NPC scripts to global script
         -- NPC scripts can't send to global directly, must go through player script
         AntiTheft_Relay_NPCUnconscious = function(data)
-            print("[PLAYER RELAY] Relaying unconscious event to global:", data.npcId, "wasSpotted:", data.wasSpotted)
+            log("[PLAYER RELAY] Relaying unconscious event to global:", data.npcId, "wasSpotted:", data.wasSpotted)
+            
+            -- Check Faction Rank Compliance: Suppress body discovery if rank is high enough
+            if self.cell and not self.cell.isExterior then
+                local cellFaction = classification.detectCellFaction(nearby, types)
+                if cellFaction then
+                    if types.NPC and types.NPC.getFactions then
+                        local playerFactions = types.NPC.getFactions(self)
+                        if playerFactions then
+                            for _, factionId in ipairs(playerFactions) do
+                                if factionId == cellFaction then
+                                    local playerRank = types.NPC.getFactionRank(self, factionId)
+                                    if playerRank >= config.FACTION_IGNORE_RANK then
+                                        log("[PLAYER RELAY] Player has rank", playerRank, "in", cellFaction, "- suppressing global unconscious event (no body discovery pulse)")
+                                        return -- Suppress event
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
             
             -- Disband follower if it's the current guard (Fix for unconscious follower bug)
             if state.guard and state.guard.id == data.npcId then
-                 print("[ANTI-THEFT] Current follower knocked UNCONSCIOUS! Disbanding.")
+                 log("[ANTI-THEFT] Current follower knocked UNCONSCIOUS! Disbanding.")
                  local guardId = state.guard.id
                  state.guard = nil
                  state.following = false
@@ -2756,19 +3073,13 @@ return {
             core.sendGlobalEvent('AntiTheft_NPCUnconscious', data)
         end,
         
-        AntiTheft_ExpectArrest = function(data)
-             if data and data.npcId then
-                 print("[ARREST LOGIC] Expecting arrest from", data.npcId, "- Monitoring distance for forced dialogue")
-                 if not state.pendingArrests then state.pendingArrests = {} end
-                 state.pendingArrests[data.npcId] = core.getRealTime()
-             end
-        end,
+
         AntiTheft_Relay_NPCConscious = function(data)
-            print("[PLAYER RELAY] Relaying conscious event to global:", data.npcId)
+            log("[PLAYER RELAY] Relaying conscious event to global:", data.npcId)
             core.sendGlobalEvent('AntiTheft_NPCConscious', data)
         end,
         AntiTheft_Relay_SleepBounty = function(data)
-            print("[PLAYER RELAY] Processing sleep bounty event")
+            log("[PLAYER RELAY] Processing sleep bounty event")
             local amount = data
             local npcId = nil
             
@@ -2778,10 +3089,11 @@ return {
                 npcId = data.npcId
             end
             
-            amount = tonumber(amount) or 0
+            -- User Request: Use stunNPCBounty for Illegal Sleep Spell
+            amount = settings.bounties:get('stunNPCBounty')
             
             if amount > 0 then
-                print("[PLAYER RELAY] Sending Bounty Event to Global (Global Patch Applied). Amount:", amount)
+                log("[PLAYER RELAY] Sending Bounty Event to Global (Global Patch Applied). Amount:", amount)
                 -- We now trust the Global Script patch to apply the bounty unconditionally.
                 -- Sending event with all necessary data.
                 core.sendGlobalEvent('AntiTheft_SetPlayerBounty', {
@@ -2792,7 +3104,7 @@ return {
                 -- Local UI message still good for immediate feedback
                 ui.showMessage("Crime Reported! Bounty added: " .. amount)
             else
-                print("[PLAYER RELAY] Error: Invalid bounty amount received")
+                log("[PLAYER RELAY] Error: Invalid bounty amount received")
             end
         end,
         AntiTheft_NotifyWitnessAttack = function(data)
@@ -2807,6 +3119,9 @@ return {
             if data and data.text then
                 ui.showMessage(data.text)
             end
+        end,
+        ShowMessage = function(data)
+            log("[PLAYER DEBUG] ShowMessage event received:", data and data.message or "nil")
         end,
         S3CombatTargetAdded = onS3CombatTargetAdded,
         S3CombatTargetRemoved = onS3CombatTargetRemoved,

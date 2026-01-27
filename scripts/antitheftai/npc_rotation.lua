@@ -30,19 +30,20 @@ local types = require('openmw.types')
 local AI = require('openmw.interfaces').AI
 
 local function log(...)
-    -- Temporarily enabled for debugging - always print
-    local npcName = types.NPC.record(self).name or "Unknown"
-    local args = {...}
-    for i, v in ipairs(args) do
-        if v == self.id then
-            args[i] = npcName .. " (" .. v .. ")"
+    if settings.general and settings.general:get('enableLogging') ~= false and settings.general:get('enableDebug') then
+        local npcName = types.NPC.record(self).name or "Unknown"
+        local args = {...}
+        for i, v in ipairs(args) do
+            if v == self.id then
+                args[i] = npcName .. " (" .. v .. ")"
+            end
+            args[i] = tostring(args[i])
         end
-        args[i] = tostring(args[i])
-    end
-    local msg = table.concat(args, " ")
-    if not seenMessages[msg] then
-        print("[NPC-AI]", table.unpack(args))
-        seenMessages[msg] = true
+        local msg = table.concat(args, " ")
+        if not seenMessages[msg] then
+            print("[NPC-AI]", table.unpack(args))
+            seenMessages[msg] = true
+        end
     end
 end
 

@@ -5,6 +5,7 @@
 local types = require("openmw.types")
 local world = require("openmw.world")
 local classification = require("scripts.antitheftai.modules.npc_classification")
+local settings = require('scripts.antitheftai.SHOPsettings')
 
 -- State to track which NPCs have been processed for random drops
 local injected_random = {}
@@ -71,6 +72,11 @@ local LEVEL_REQUIREMENTS = {
 -- Targeted at Thieves Guild merchants in TG locations. 
 -- Runs every time to ensure stock.
 local function processMerchantRestock(actor, cellFaction)
+    -- Check if blackjack spawning is enabled
+    if not settings.general:get('enableBlackjackSpawning') then
+        return
+    end
+    
     -- Must be in Thieves Guild Location
     if not cellFaction or cellFaction:lower() ~= "thieves guild" then
         return
@@ -127,6 +133,11 @@ end
 -- Targeted at specific classes everywhere ELSE.
 -- Runs ONCE per NPC.
 local function processCriminalDrop(actor, cellFaction)
+    -- Check if blackjack spawning is enabled
+    if not settings.general:get('enableBlackjackSpawning') then
+        return
+    end
+    
     if not actor.id then return end
     
     -- Check if already processed

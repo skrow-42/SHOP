@@ -16,7 +16,7 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 ]]
 ----------------------------------------------------------------------
--- Anti-Theft Guard AI •  v0.9 PUBLIC TEST  •  shared settings helper  (OpenMW Lua ≥ 0.49)
+-- Anti-Theft Guard AI •  v0.98 PUBLIC TEST  •  shared settings helper  (OpenMW Lua ≥ 0.49)
 ----------------------------------------------------------------------
 
 local storage = require('openmw.storage')
@@ -29,6 +29,7 @@ local GROUP_TIMING = 'SettingsSHOPsetTiming' -- “Timing” group key
 local GROUP_DISTANCES = 'SettingsSHOPsetDistances' -- “Distances” group key
 local GROUP_COMPAT = 'SettingsSHOPsetCompatibility' -- “Compatibility” group key
 
+
 -- 1) Register UI (only in contexts that expose I.Settings)
 if I.Settings and I.Settings.registerPage then
     -- Page
@@ -36,7 +37,7 @@ if I.Settings and I.Settings.registerPage then
         key         = PAGE_KEY,
         l10n        = PAGE_KEY,
         name        = 'SHOP - Store Owner & House Patrol',
-        description = 'SHOP v0.9 - Public Test\n Please report all bugs. \n Try to break the mod as much as possible.\n Let me know which Cells or NPCs MUST be disabled.\n Fit SHOP options below to your gamestyle likings.\n\n Made by skrow42',
+        description = 'SHOP v0.98 - Public Test\n Please report all bugs. \n Try to break the mod as much as possible.\n Let me know which Cells or NPCs MUST be disabled.\n Fit SHOP options below to your gamestyle likings.\n\n Made by skrow42',
     }
 
     -- General group
@@ -48,9 +49,16 @@ if I.Settings and I.Settings.registerPage then
         permanentStorage = false,
         settings = {
             {
+                key         = 'enableLogging',
+                renderer    = 'checkbox',
+                name        = 'Enable All Logging',
+                description = 'Master switch. If disabled, no logs will be printed regardless of other debug settings. Decreases performance.',
+                default     = false,
+            },
+            {
                 key         = 'enableDebug',
                 renderer    = 'checkbox',
-                name        = 'Enable Debug Messages',
+                name        = 'Enable Player Debug Messages',
                 description = 'Print F10 player-scripts logs to the console. Decreases performance.',
                 default     = false,
             },
@@ -60,6 +68,39 @@ if I.Settings and I.Settings.registerPage then
                 name        = 'Enable Global Debug Messages',
                 description = 'Print F10 global-scripts logs to the console. Decreases performance.',
                 default     = false,
+            },
+            {
+                key         = 'enableDoorMechanics',
+                renderer    = 'checkbox',
+                name        = 'Enable Door Mechanics',
+                description = 'Enable NPC reaction to door locking.',
+                default     = true,
+            },
+            {
+                key         = 'stunChanceDisplay',
+                renderer    = 'select',
+                name        = 'Stun Chance Display',
+                description = 'How to display blackjack stun chance when approaching NPCs.',
+                default     = 'contextual',
+                argument    = {
+                    l10n    = PAGE_KEY,
+                    items   = {'off', 'exact', 'contextual'},
+                    labels  = {'Off', 'Exact %', 'Contextual (Low/Med/High)'},
+                },
+            },
+            {
+                key         = 'addStunChanceSuffix',
+                renderer    = 'checkbox',
+                name        = 'Add Stun Chance Suffix',
+                description = 'If enabled, adds dynamic suffix to contextual messages: (Low), (Medium), (High).',
+                default     = true,
+            },
+            {
+                key         = 'enableBlackjackSpawning',
+                renderer    = 'checkbox',
+                name        = 'Enable Blackjack Script',
+                description = 'Enable Blackjack Sleep script and associated items (1% loot chance, TG Merchants Added).',
+                default     = true,
             },
         },
     }
@@ -145,6 +186,26 @@ if I.Settings and I.Settings.registerPage then
                 min         = 50.0,
                 max         = 1000.0,
                 step        = 10.0,
+            },
+            {
+                key         = 'interiorAlarmRadius',
+                renderer    = 'number',
+                name        = 'Interior Alarm Radius',
+                description = 'Radius for relaying alarm to other NPCs in interiors.(500-5000 units)',
+                default     = 1000,
+                min         = 500,
+                max         = 5000,
+                step        = 100,
+            },
+            {
+                key         = 'exteriorAlarmRadius',
+                renderer    = 'number',
+                name        = 'Exterior Alarm Radius',
+                description = 'Radius for relaying alarm to other NPCs in exteriors.(500-10000 units)',
+                default     = 3500,
+                min         = 500,
+                max         = 10000,
+                step        = 100,
             },
 
         },
@@ -356,6 +417,7 @@ if I.Settings and I.Settings.registerPage then
             },
         },
     }
+
 
     -- Bounties group
     I.Settings.registerGroup{

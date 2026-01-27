@@ -61,6 +61,10 @@ local BLACKJACK_WEAPONS = {
     ['blackjack-dwemer-extended'] = true
 }
 
+local fleeRestoreData = nil -- Stores original stats during Flee behavior
+local fleeItemCharges = {} -- Stores original charges during Flee behavior
+local fleeScrolls = {} -- Stores removed scrolls during Flee behavior
+
 -- List of weighted blackjacks for stun duration bonus
 local WEIGHTED_BLACKJACKS = {
     ['blackjack-wooden-weighted'] = true,
@@ -83,18 +87,155 @@ local originalAlarmValue = nil  -- Store original alarm value to restore later
 local wasSpottedDuringHit = false  -- Track if player was spotted when blackjack hit occurred
 local wasDiscoveredByOthers = false  -- Track if body was discovered by another NPC
 local witnessTimer = nil  -- 60-second timer for victim witness detection
+local lastStunTime = nil -- Track last time NPC was stunned
 
-print("[BLACKJACK SLEEP] Script loaded for NPC:", self.id)
+local bedVoices = require('scripts.antitheftai.modules.bed_voices')
+
+----------------------------------------------------------------------
+-- Helper: Debug Logging
+----------------------------------------------------------------------
+local function log(...)
+    if settings.general and settings.general:get('enableLogging') ~= false and settings.general:get('enableDebug') then
+        print(...)
+    end
+end
+
+----------------------------------------------------------------------
+-- Helper: Civilian Reaction Logic (Level Scaling + Demoralize)
+----------------------------------------------------------------------
+local function handleCivilianReaction(npc, player)
+    if not npc or not player then return end
+
+    -- Calculate level-based probabilities
+    local playerLevel = types.Actor.stats.level(player).current
+    local civilianLevel = types.Actor.stats.level(npc).current
+    local levelDiff = playerLevel - civilianLevel  -- Positive = Player Advantage, Negative = NPC Advantage
+
+    -- Base chances (Phase 0 - Equal Level)
+    local attackChance = 10
+    local voiceChance = 30
+    local demoralizeChance = 60
+
+    -- Apply level scaling
+    if levelDiff > 0 then
+        -- === PLAYER ADVANTAGE (Player > NPC) ===
+        local scaledDiff = math.min(levelDiff, 20)  -- Cap at 20 effect
+        
+        -- Phase 1: Reduce attack chance (Levels +1 to +10)
+        -- Attack drops 1%/lvl (10->0), Fear rises 1%/lvl (60->70)
+        if scaledDiff <= 10 then
+            attackChance = math.max(0, attackChance - scaledDiff)
+            demoralizeChance = demoralizeChance + scaledDiff
+        else
+            -- Phase 2: Reduce voice chance (Levels +11 to +20)
+            -- Attack is 0. Voice drops 1%/lvl approx (30->20).
+            attackChance = 0
+            local extraLevels = scaledDiff - 10
+            voiceChance = math.max(20, 30 - extraLevels) -- Drop 1% per level past 10
+            demoralizeChance = math.min(80, 70 + extraLevels) -- Rise 1% per level past 10
+        end
+
+    elseif levelDiff < 0 then
+        -- === NPC ADVANTAGE (NPC > Player) ===
+        -- Combat increases 2% per level, Demoralize decreases 2% per level
+        -- Cap: Demoralize hits 0% at +30 levels diff (60 - 30*2 = 0)
+        
+        local absDiff = math.abs(levelDiff)
+        local change = absDiff * 2  -- 2% per level
+        
+        -- Increase Combat
+        attackChance = attackChance + change
+        
+        -- Decrease Demoralize (min 0)
+        demoralizeChance = math.max(0, demoralizeChance - change)
+        
+        -- If demoralize hits 0 (at +30 levels), the rest pours into combat
+        -- Base sum = 10+30+60 = 100
+        -- Example at +30 levels: Change = 60.
+        -- Attack = 10 + 60 = 70.
+        -- Voice = 30 (Constant).
+        -- Demoralize = 60 - 60 = 0.
+        -- Sum = 100. Perfect.
+    end
+
+
+
+    -- Roll dice
+    local roll = math.random(100)
+    log(string.format("[Reaction] LvlDiff: %d (P%d/N%d) | Chances: Atk %.1f / Voice %.1f / Fear %.1f | Roll: %d", 
+        levelDiff, playerLevel, civilianLevel, attackChance, voiceChance, demoralizeChance, roll))
+
+    if roll <= attackChance then
+        log("   -> Decision: COMBAT")
+        npc:sendEvent('StartAIPackage', { type = 'Combat', target = player })
+    elseif roll <= (attackChance + voiceChance) then
+        log("   -> Decision: SCREAM (Voice)")
+        
+        -- Voice Logic
+        local record = types.NPC.record(npc)
+        local played = false
+        if record and bedVoices then
+            local race = record.race:lower():gsub(" ", "")
+            local gender = record.isMale and "male" or "female"
+            
+            local voicesMap = bedVoices[race]
+            if not voicesMap then voicesMap = bedVoices[record.race:lower()] end -- Fallback try without gsub?
+            
+            if voicesMap and voicesMap[gender] then
+                local list = voicesMap[gender]
+                if #list > 0 then
+                    local entry = list[math.random(#list)]
+                    local voicePath = entry.file
+                    if voicePath:find("^Vo/") then voicePath = "sound/" .. voicePath
+                    elseif not voicePath:find("^sound/") then voicePath = "sound/" .. voicePath end
+                    
+                    if npc == self then
+                        -- Local script can only 'say' on its own object
+                        core.sound.say(voicePath, npc, entry.response)
+                    else
+                        -- Remote NPC: Send event to Global to play sound (fallback to 3D sound if 'say' fails or is restricted)
+                        core.sendGlobalEvent('AntiTheft_TriggerVoice', {
+                            npcId = npc.id,
+                            path = voicePath,
+                            text = entry.response,
+                            position = npc.position
+                        })
+                    end
+                    log("[Reaction] Triggered voice:", voicePath)
+                    played = true
+                end
+            end
+        end
+        
+        -- Fallback if no voice found (matches original behavior)
+        if not played then
+            log("[Reaction] No voice found replacement -> COMBAT")
+            npc:sendEvent('StartAIPackage', { type = 'Combat', target = player })
+        end
+    else
+        log("   -> Decision: FLEE (Demoralize)")
+        pcall(function()
+             -- Send Event to the TARGET NPC to modify ITS OWN stats (Local Context)
+             npc:sendEvent('AntiTheft_ApplyFleeStats', { target = player })
+        end)
+    end
+end
+
 
 ----------------------------------------------------------------------
 -- On Hit Handler - Detects blackjack weapon hits and applies spell
 ----------------------------------------------------------------------
 local function onHit(attack)
+    -- Master Toggle Check
+    if not settings.general:get('enableBlackjackSpawning') then
+         return -- Mechanics disabled
+    end
+
     -- Check if hit by a weapon
     if not attack.weapon then
         return  -- Not a weapon attack, allow normal processing
     end
-    
+     
     -- Get weapon record ID
     local weaponRecord = types.Weapon.record(attack.weapon)
     if not weaponRecord or not weaponRecord.id then
@@ -102,19 +243,19 @@ local function onHit(attack)
     end
     
     local weaponId = weaponRecord.id:lower()
-    print("[BLACKJACK SLEEP] NPC", self.id, "hit by weapon:", weaponId)
+    log("[BLACKJACK SLEEP] NPC", self.id, "hit by weapon:", weaponId)
     
     -- Check if it's a blackjack weapon
     if not BLACKJACK_WEAPONS[weaponId] then
-        print("[BLACKJACK SLEEP] Not a blackjack weapon, allowing normal hit processing")
+        log("[BLACKJACK SLEEP] Not a blackjack weapon, allowing normal hit processing")
         return  -- Not a blackjack, allow normal processing
     end
     
-    print("[BLACKJACK SLEEP] ★★★ BLACKJACK HIT DETECTED! ★★★")
+    log("[BLACKJACK SLEEP] ★★★ BLACKJACK HIT DETECTED! ★★★")
     
     -- Check if attacker exists and is the player
     if not attack.attacker then
-        print("[BLACKJACK SLEEP] No attacker found, canceling attack anyway")
+        log("[BLACKJACK SLEEP] No attacker found, canceling attack anyway")
         if attack.damage then
             for stat, _ in pairs(attack.damage) do
                 attack.damage[stat] = 0
@@ -147,90 +288,79 @@ local function onHit(attack)
     -- -1 = directly behind, 0 = perpendicular, 1 = directly in front
     local dotProduct = npcForwardNorm.x * toAttackerNorm.x + npcForwardNorm.y * toAttackerNorm.y
     
-    print("[BLACKJACK SLEEP] Attack direction check:")
-    print("[BLACKJACK SLEEP]   - Dot product:", dotProduct)
-    print("[BLACKJACK SLEEP]   - NPC forward:", npcForwardNorm.x, npcForwardNorm.y)
-    print("[BLACKJACK SLEEP]   - To attacker:", toAttackerNorm.x, toAttackerNorm.y)
+    log("[BLACKJACK SLEEP] Attack direction check:")
+    log("[BLACKJACK SLEEP]   - Dot product:", dotProduct)
     
-    -- Check if attack is from behind (dot product < 0 means behind)
-    -- Using threshold of 0.0 means exactly perpendicular or behind
-    -- Using -0.3 would allow some side attacks, using 0.3 would be more strict
+    -- Check if attack is from behind (dot product < -0.1 means behind)
     local isFromBehind = dotProduct < -0.1
     
     if not isFromBehind then
-        print("[BLACKJACK SLEEP] ✗ Attack NOT from behind (frontside/side attack) - sleep will NOT be applied")
-        print("[BLACKJACK SLEEP]   - Allowing normal attack processing - NPC will become aggressive!")
-        -- Do NOT cancel the attack - let normal combat/crime happen
+        log("[BLACKJACK SLEEP] ✗ Attack NOT from behind - sleep will NOT be applied")
         return  -- Allow normal attack processing
     end
     
-    print("[BLACKJACK SLEEP] ✓ Attack IS from behind - proceeding with sleep application")
+    log("[BLACKJACK SLEEP] ✓ Attack IS from behind - proceeding with sleep check")
     
     -- Check fight value
     local FightValue = types.Actor.stats.ai.fight(self).base
     if FightValue >= 90 then
-        print("[BLACKJACK SLEEP] Fight value too high (", FightValue, "), sleep not applied but canceling attack anyway")
-        -- Still cancel the attack to prevent combat/crime
-        if attack.damage then
-            for stat, _ in pairs(attack.damage) do
-                attack.damage[stat] = 0
-            end
-        end
-        return false  -- Cancel attack processing
+        log("[BLACKJACK SLEEP] Fight value too high (", FightValue, "), sleep not applied")
+        if attack.damage then for stat, _ in pairs(attack.damage) do attack.damage[stat] = 0 end end
+        return false
+    end
+
+    -- COOLDOWN CHECK
+    -- Check if NPC was recently stunned
+    local currentTime = core.getSimulationTime()
+    if lastStunTime and (currentTime < lastStunTime + 60) then
+         log("[BLACKJACK SLEEP] Target is immune/alert (Cooldown active). Time remaining:", (lastStunTime + 60) - currentTime)
+         -- Fail the stun. Allow normal attack? 
+         -- "rest of plan looks great" -> Plan said "Fail implies no stun... ensure normal combat/alert behavior"
+         return -- Allow normal hit (combat/alert)
     end
     
-    -- Calculate Dynamic Sleep Duration
-    -- Formula: (Str + Sneak + Blunt) * 0.1 +/- 15% random variance
-    -- Bonus: +15% if weighted blackjack
-    local attackerStr = 50
-    local attackerSneak = 50
-    local attackerBlunt = 50
+    -- Calculate Chance using Shared Module
+    local mechanics = require('scripts.antitheftai.modules.blackjack_mechanics')
+    local chance = mechanics.calculateStunChance(attack.attacker, self)
+    log(string.format("[BLACKJACK SLEEP] Stun Chance Calculation: %.2f%%", chance))
     
-    if attack.attacker.type == types.Player then
-        attackerStr = types.Actor.stats.attributes.strength(attack.attacker).modified
-        attackerSneak = types.Player.stats.skills.sneak(attack.attacker).modified
-        attackerBlunt = types.Player.stats.skills.bluntweapon(attack.attacker).modified
-    elseif attack.attacker.type == types.NPC then
-        attackerStr = types.Actor.stats.attributes.strength(attack.attacker).modified
-        attackerSneak = types.NPC.stats.skills.sneak(attack.attacker).modified
-        attackerBlunt = types.NPC.stats.skills.bluntweapon(attack.attacker).modified
+    -- Roll Dice
+    local roll = math.random() * 100
+    if roll > chance then
+        log(string.format("[BLACKJACK SLEEP] ✗ Stun FAILED (Roll: %.2f > Chance: %.2f)", roll, chance))
+        -- Allow normal attack logic (alert/combat)
+        return
     end
     
-    local baseDuration = (attackerStr + attackerSneak + attackerBlunt) * 0.1
+    log(string.format("[BLACKJACK SLEEP] ✓ Stun SUCCESS (Roll: %.2f <= Chance: %.2f)", roll, chance))
     
-    -- Apply Random Variance (+/- 15%)
-    local variance = (math.random() * 0.30) - 0.15 -- -0.15 to +0.15
-    local duration = baseDuration * (1.0 + variance)
-    
-    -- Apply Weighted Bonus
-    if WEIGHTED_BLACKJACKS[weaponId] then
-        duration = duration * 1.15
-        print("[BLACKJACK SLEEP] Weighted blackjack bonus applied (+15%)")
-    end
-    
-    -- Store calculated duration for this knockout instance
+    -- Calculate Duration using Shared Module (Pass configurable max cap)
+    local maxCap = settings.vars and settings.vars:get('maxBlackjackDuration') or 45
+    local mechanics = require('scripts.antitheftai.modules.blackjack_mechanics')
+    local duration = mechanics.calculateDuration(attack.attacker, weaponId, maxCap)
     calculatedSleepDuration = duration
-    print(string.format("[BLACKJACK SLEEP] Dynamic Stun Duration: %.2fs (Base: %.2f, Stats: Str %d/Snk %d/Blunt %d)", duration, baseDuration, attackerStr, attackerSneak, attackerBlunt))
+    log(string.format("[BLACKJACK SLEEP] Duration Calculated: %.2fs (Max Cap: %ds)", duration, maxCap))
+    
+    -- Set Cooldown
+    lastStunTime = currentTime
 
     -- Apply the sleep spell
     local success, err = pcall(function()
         types.Actor.spells(self):add(SLEEP_SPELL_ID)
-        print("[BLACKJACK SLEEP] Sleep spell applied successfully to NPC:", self.id)
+        log("[BLACKJACK SLEEP] Sleep spell applied successfully to NPC:", self.id)
         
         -- Send success event to attacker (Player) for XP and Durability handling
         if attack.attacker and attack.attacker.type == types.Player then
             attack.attacker:sendEvent('AntiTheft_BlackjackSuccess', { 
                 weapon = attack.weapon 
             })
-            print("[BLACKJACK SLEEP] Sent AntiTheft_BlackjackSuccess event to player")
         end
     end)
     
     if not success then
-        --print("[BLACKJACK SLEEP] ERROR applying spell:", err)
+        --log("[BLACKJACK SLEEP] ERROR applying spell:", err)
     else
-       -- Check if player was already spotted BEFORE the blackjack hit
-        -- ErnBurglary applies a Drain Sneak effect when player is spotted
+        -- Check if player was already spotted BEFORE the blackjack hit
         local isPlayerSpotted = false
         if attack.attacker then
             local playerEffects = types.Actor.activeEffects(attack.attacker)
@@ -238,85 +368,40 @@ local function onHit(attack)
                 local drainSneakEffect = playerEffects:getEffect(core.magic.EFFECT_TYPE.DrainSkill, 'sneak')
                 if drainSneakEffect and drainSneakEffect.magnitude > 0 then
                     isPlayerSpotted = true
-                    print("[BLACKJACK SLEEP] Detected Drain Sneak effect - player is spotted")
+                    log("[BLACKJACK SLEEP] Detected Drain Sneak effect - player is spotted")
                 end
             end
         end
         
-        print("[BLACKJACK SLEEP] ErnBurglary spotted status:", isPlayerSpotted)
-        
-        -- Store spotted status - event will be sent from repeating check
+        -- Store spotted status
         wasSpottedDuringHit = isPlayerSpotted
-        if isPlayerSpotted then
-            print("[BLACKJACK SLEEP] Player was spotted - bounty will be applied from repeating check")
-        else
-            print("[BLACKJACK SLEEP] Player was NOT spotted - stealthy takedown, no bounty")
-        end
         
         -- IMMEDIATELY disable alarm and hello to prevent crime detection
-        -- Don't wait for the repeating check - there's a crucial timing window
         if not originalHelloValue then
             originalHelloValue = types.NPC.stats.ai.hello(self).base
-            print("[BLACKJACK SLEEP] Stored original hello value:", originalHelloValue)
         end
         
         if not originalAlarmValue then
             originalAlarmValue = types.NPC.stats.ai.alarm(self).base
-            print("[BLACKJACK SLEEP] Stored original alarm value:", originalAlarmValue)
         end
         
         types.NPC.stats.ai.hello(self).base = 0
         types.NPC.stats.ai.alarm(self).base = 0
-        print("[BLACKJACK SLEEP] IMMEDIATELY disabled hello and alarm to prevent crime detection")
         
-        -- Apply blind effect using ActorActiveEffects:set() for 100% blindness
-        local blindSuccess, blindErr = pcall(function()
+        -- Apply blind effect
+        pcall(function()
             types.Actor.activeEffects(self):set(100, core.magic.EFFECT_TYPE.Blind)
         end)
-        
-        if blindSuccess then
-            print("[BLACKJACK SLEEP] Applied blind effect (magnitude 100) - NPC is 100% blind")
-        else
-            print("[BLACKJACK SLEEP] ERROR applying blind effect:", blindErr)
-        end
-        
-        -- Play sound effect for successful blackjack hit
-        --local soundPath
-        
-        --print("[BLACKJACK SLEEP] Checking weapon type for sound. weaponId =", weaponId)
-        
-        -- Check if wooden blackjack
-        --if weaponId == 'blackjack-wooden' or weaponId == 'blackjack-wooden-5' or weaponId == 'blackjack-wooden-10' then
-        --    soundPath = "sound/slam/bwooden1.mp3"
-        --    print("[BLACKJACK SLEEP] Playing wooden blackjack sound:", soundPath)
-        --else
-            -- Metal blackjack - play random metal sound (bmetal1 to bmetal5)
-         --   local randomNum = math.random(1, 5)
-         --   soundPath = "sound/slam/bmetal" .. randomNum .. ".mp3"
-         --   print("[BLACKJACK SLEEP] Playing metal blackjack sound:", soundPath)
-        --end
-        
-        -- Play the sound at NPC's position
-        --core.sound.playSoundFile3d(soundPath, self, {
-         --   volume = 1.0,
-          --  pitch = 0.9 + math.random() * 0.2,  -- Random between 0.9 and 1.1
-          --  loop = false
-        --})
-       -- print("[BLACKJACK SLEEP] Sound played successfully")
     end
     
     -- CRITICAL: Zero out all damage to prevent health loss
     if attack.damage then
-        print("[BLACKJACK SLEEP] Zeroing out damage to prevent health loss")
-        for stat, value in pairs(attack.damage) do
-            print("[BLACKJACK SLEEP]   - Removing", value, stat, "damage")
+        for stat, _ in pairs(attack.damage) do
             attack.damage[stat] = 0
         end
     end
     
     -- CRITICAL: Return false to cancel attack processing
-    -- This prevents combat detection and bounty/crime
-    print("[BLACKJACK SLEEP] Returning false to cancel combat/crime detection")
     return false
 end
 
@@ -324,10 +409,10 @@ end
 local I = require('openmw.interfaces')
 if I.Combat and I.Combat.addOnHitHandler then
     I.Combat.addOnHitHandler(onHit)
-    print("[BLACKJACK SLEEP] OnHit handler registered successfully")
+    log("[BLACKJACK SLEEP] OnHit handler registered successfully")
 else
-    print("[BLACKJACK SLEEP] ERROR: Combat.addOnHitHandler not available!")
-    print("[BLACKJACK SLEEP] Available interfaces:", I)
+    log("[BLACKJACK SLEEP] ERROR: Combat.addOnHitHandler not available!")
+    log("[BLACKJACK SLEEP] Available interfaces:", I)
 end
 
 ----------------------------------------------------------------------
@@ -348,16 +433,17 @@ local stopFn = time.runRepeatedly(function()
     -- Check if sleep spell is active
     local isSleepActive = types.Actor.activeSpells(self):isSpellActive(SLEEP_SPELL_ID)
     
-    -- If sleep spell is active and NPC is in normal stance, drain fatigue
-    if isSleepActive and StanceValue == 0 then
+    -- If sleep spell is active, drain fatigue
+    if isSleepActive then
         types.Actor.stats.dynamic.fatigue(self).current = -45
+        -- log("[BLACKJACK DEBUG] Applying sleep fatigue drain (-45)") -- Commented out debug
         
         -- **PULSE DETECTION: Scan for conscious NPCs within 800 units**
         -- This runs every second while unconscious
         -- **VISUAL SCAN: Nearby NPCs checking for bodies**
         -- Only scan if not yet discovered to prevent spam and repeated bounties
         if doOnce == 1 and not wasDiscoveredByOthers then
-            -- print("[VISUAL SCAN] Emitting detection scan from unconscious NPC", self.id)
+            -- log("[VISUAL SCAN] Emitting detection scan from unconscious NPC", self.id)
             
             local myPos = self.position
             local player = nearby.players[1]  -- Get player from nearby module in NPC script
@@ -408,22 +494,24 @@ local stopFn = time.runRepeatedly(function()
                                     if ray.hit then
                                         if ray.hitObject and ray.hitObject.id == self.id then
                                             -- Hit the victim -> VISIBLE
-                                            -- print("[VISUAL DEBUG]", name, "VISIBLE (Ray hit victim)")
+                                            -- log("[VISUAL DEBUG]", name, "VISIBLE (Ray hit victim)")
                                             return true
                                         else
                                             -- Hit something else -> BLOCKED
-                                            -- print("[VISUAL DEBUG]", name, "BLOCKED by", ray.hitObject and ray.hitObject.recordId or "Unknown Geometry")
+                                            -- log("[VISUAL DEBUG]", name, "BLOCKED by", ray.hitObject and ray.hitObject.recordId or "Unknown Geometry")
                                             return false
                                         end
                                     else
                                         -- Hit nothing -> CLEAR LINE using collisionType logic
-                                        -- print("[VISUAL DEBUG]", name, "VISIBLE (Clear Line)")
+                                        -- log("[VISUAL DEBUG]", name, "VISIBLE (Clear Line)")
                                         return true
                                     end
                                 end
                                 
                                 local canSeeFeet = checkPart(vFeet, "Feet")
                                 local canSeeTorso = checkPart(vTorso, "Torso")
+                                local canSeeHead = checkPart(vHead, "Head")
+                                
                                 local canSeeHead = checkPart(vHead, "Head")
                                 
                                 if canSeeFeet or canSeeTorso or canSeeHead then
@@ -437,11 +525,11 @@ local stopFn = time.runRepeatedly(function()
                                     end
 
                                     -- NPC discovered the body!
-                                    print("[ANTI-THEFT] ★★★ BODY DISCOVERED! Witness:", actor.id, "saw unconscious NPC", self.id)
+                                    log("[ANTI-THEFT] ★★★ BODY DISCOVERED! Witness:", actor.id, "saw unconscious NPC", self.id)
                                 
                                     -- Apply bounty if player wasn't spotted during the hit (and bounty not yet applied)
                                     if not wasSpottedDuringHit and player then
-                                        print("[ANTI-THEFT] Crime reported! Applying bounty.")
+                                        log("[ANTI-THEFT] Crime reported! Applying bounty.")
                                         -- Pass table with AMOUNT and WITNESS ID
                                         -- TARGETING PLAYER SCRIPT directly (corrected from Global)
                                         player:sendEvent("AntiTheft_Relay_SleepBounty", { 
@@ -457,7 +545,7 @@ local stopFn = time.runRepeatedly(function()
                                         player:sendEvent("AntiTheft_NotifyWitnessAttack", { npcId = actor.id })
                                         
                                         if isGuard(actor) then
-                                            print("[ANTI-THEFT] Witness is GUARD - Initiating ARREST (Pursue + ForceDialog)")
+                                            log("[ANTI-THEFT] Witness is GUARD - Initiating ARREST (Pursue + ForceDialog)")
                                             
                                             -- Revert to 'Pursue' pkg as requested.
                                             -- Added 0.3s delay to ensure bounty is applied first (Race Condition Fix).
@@ -472,53 +560,17 @@ local stopFn = time.runRepeatedly(function()
                                             
                                             -- Notify player script to monitor distance and force dialogue (Safety Net)
                                         else
-                                            print("[ANTI-THEFT] Witness is CIVILIAN")
-                                            
-                                            -- 50/50 Chance: Combat or Scream/Flee
-                                            if math.random() > 0.5 then
-                                                print("   -> Decision: COMBAT")
-                                                actor:sendEvent('StartAIPackage', {
-                                                    type = 'Combat',
-                                                    target = player
-                                                })
-                                            else
-                                                print("   -> Decision: SCREAM (Voice)")
-                                                -- Attempt to play voice from bed_voices
-                                                local bedVoices = require('scripts.antitheftai.modules.bed_voices')
-                                                local record = types.NPC.record(actor)
-                                                if record and bedVoices then
-                                                    local race = record.race:lower()
-                                                    local gender = record.isMale and "male" or "female"
-                                                    
-                                                    -- Normalize race string
-                                                    race = race:gsub(" ", "") 
-                                                    
-                                                    local voicesMap = bedVoices[race]
-                                                    if not voicesMap then
-                                                        voicesMap = bedVoices[record.race:lower()]
-                                                    end
-                                                    
-                                                    if voicesMap and voicesMap[gender] then
-                                                        local list = voicesMap[gender]
-                                                        if #list > 0 then
-                                                            local entry = list[math.random(#list)]
-                                                            core.sound.say(entry.response, entry.file)
-                                                            print("[ANTI-THEFT] Played voice:", entry.file)
-                                                        end
-                                                    else
-                                                        print("[ANTI-THEFT] No voice found for", race, gender)
-                                                        actor:sendEvent('StartAIPackage', {
-                                                            type = 'Combat',
-                                                            target = player
-                                                        })
-                                                    end
-                                                end
-                                            end
+                                            log("[ANTI-THEFT] Witness is CIVILIAN")
+                                            handleCivilianReaction(actor, player)
                                         end
                                         
                                         -- **chain reaction ALARM**: Witness alerts other nearby NPCs
-                                        -- Radius: 1000 units around the WITNESS position
-                                        print("[ANTI-THEFT] Witness shouting alarm! Alerting neighbors within 1000u")
+                                        -- Radius: Configurable (Default 1000 Int / 3500 Ext)
+                                        local alarmRadius = settings.vars:get('interiorAlarmRadius') or 1000
+                                        if self.cell.isExterior then
+                                            alarmRadius = settings.vars:get('exteriorAlarmRadius') or 3500
+                                        end
+                                        log("[ANTI-THEFT] Witness shouting alarm! Alerting neighbors within " .. alarmRadius .. "u (Exterior: " .. tostring(self.cell.isExterior) .. ")")
                                         
                                         for _, neighbor in ipairs(nearby.actors) do
                                             -- Filter: Must be NPC, Not Witness, Not Victim
@@ -526,19 +578,19 @@ local stopFn = time.runRepeatedly(function()
                                                 -- Check distance to WITNESS
                                                 local distToWitness = (neighbor.position - actor.position):length()
                                                 
-                                                if distToWitness <= 1000 then
+                                                if distToWitness <= alarmRadius then
                                                     -- Ensure neighbor is conscious
                                                     local isNeighborConscious = not types.Actor.activeSpells(neighbor):isSpellActive(SLEEP_SPELL_ID)
                                                     
                                                     if isNeighborConscious then
-                                                        print("[ANTI-THEFT] Neighbor alerted by alarm:", neighbor.id)
+                                                        log("[ANTI-THEFT] Neighbor alerted by alarm:", neighbor.id)
                                                         
                                                         -- Notify player script (prevent disband) + Expect Arrest if Guard
                                                         player:sendEvent("AntiTheft_NotifyWitnessAttack", { npcId = neighbor.id })
                                                         
                                                         -- Engage Combat or Arrest
                                                         if isGuard(neighbor) then
-                                                            print("   -> Neighbor is Guard: Arresting (Pursue)")
+                                                            log("   -> Neighbor is Guard: Arresting (Pursue)")
                                                             async:newUnsavableSimulationTimer(0.35, function()
                                                                 if neighbor and neighbor:isValid() and player then
                                                                     neighbor:sendEvent('StartAIPackage', {
@@ -548,11 +600,8 @@ local stopFn = time.runRepeatedly(function()
                                                                 end
                                                             end)
                                                         else
-                                                            print("   -> Neighbor is Civilian: Combat")
-                                                            neighbor:sendEvent('StartAIPackage', {
-                                                                type = 'Combat',
-                                                                target = player
-                                                            })
+                                                            log("   -> Neighbor is Civilian: Reaction")
+                                                            handleCivilianReaction(neighbor, player)
                                                         end
                                                     end
                                                 end
@@ -577,25 +626,25 @@ local stopFn = time.runRepeatedly(function()
         if not originalHelloValue then
             -- Store original hello value first time
             originalHelloValue = types.NPC.stats.ai.hello(self).base
-            print("[BLACKJACK SLEEP] Stored original hello value:", originalHelloValue)
+            log("[BLACKJACK SLEEP] Stored original hello value:", originalHelloValue)
         end
         
         -- Store original alarm value to prevent crime detection
         if not originalAlarmValue then
             originalAlarmValue = types.NPC.stats.ai.alarm(self).base
-            print("[BLACKJACK SLEEP] Stored original alarm value:", originalAlarmValue)
+            log("[BLACKJACK SLEEP] Stored original alarm value:", originalAlarmValue)
         end
         
         -- Set hello to 0 to prevent interaction
         if types.NPC.stats.ai.hello(self).base ~= 0 then
             types.NPC.stats.ai.hello(self).base = 0
-            print("[BLACKJACK SLEEP] Disabled NPC interaction (hello = 0) - NPC cannot be recruited")
+            log("[BLACKJACK SLEEP] Disabled NPC interaction (hello = 0) - NPC cannot be recruited")
         end
         
         -- Set alarm to 0 to prevent crime detection
         if types.NPC.stats.ai.alarm(self).base ~= 0 then
             types.NPC.stats.ai.alarm(self).base = 0
-            print("[BLACKJACK SLEEP] Disabled crime detection (alarm = 0) - NPC cannot report crimes")
+            log("[BLACKJACK SLEEP] Disabled crime detection (alarm = 0) - NPC cannot report crimes")
         end
     end
     
@@ -606,52 +655,48 @@ local stopFn = time.runRepeatedly(function()
         
         if wasSpottedDuringHit then
             -- Player was spotted - send bounty event (like illegal sleep spell would)
-            print("[BLACKJACK SLEEP] Sending bounty event - player was spotted during blackjack")
+            log("[BLACKJACK SLEEP] Sending bounty event - player was spotted during blackjack")
             local stunBounty = settings.bounties:get('stunNPCBounty') or 300
             core.sendGlobalEvent("AntiTheft_Relay_SleepBounty", stunBounty)
         else
             -- Player was not spotted - stealthy takedown, no bounty event
-            print("[BLACKJACK SLEEP] Sleep activated (NO crime event sent - blackjack is legal stealth)")
+            log("[BLACKJACK SLEEP] Sleep activated (NO crime event sent - blackjack is legal stealth)")
         end
         
-        -- Notify global script that this NPC is now unconscious
-        -- Send through player relay since NPC scripts can't send to global directly
         core.sendGlobalEvent('AntiTheft_Relay_NPCUnconscious', {
             npcId = self.id,
             wasSpotted = wasSpottedDuringHit
         })
-        print("[BLACKJACK SLEEP] Sent unconscious event via player relay - wasSpotted:", wasSpottedDuringHit)
+        log("[BLACKJACK SLEEP] Sent unconscious event via player relay - wasSpotted:", wasSpottedDuringHit)
         
         -- Start custom duration timer (remove spell after DYNAMIC duration seconds)
         local duration = calculatedSleepDuration or SLEEP_DURATION -- Use calculated if available, else default
-        print("[BLACKJACK SLEEP] Starting sleep timer for duration:", duration)
+        log("[BLACKJACK SLEEP] Starting sleep timer for duration:", duration)
         
         if not sleepTimerHandle then
             sleepTimerHandle = async:newUnsavableSimulationTimer(duration, function()
-                print("[BLACKJACK SLEEP] Duration timer expired")
+                log("[BLACKJACK SLEEP] Duration timer expired")
                 
                 -- Wrap in pcall to prevent crash and ensure handle reset
                 local success, err = pcall(function()
                     -- Force remove spell without checking active status (safe to remove even if not active)
-                    -- Check if types.Actor.spells exists
                     if types.Actor.spells then
                         types.Actor.spells(self):remove(SLEEP_SPELL_ID)
-                        print("[BLACKJACK SLEEP] Removed sleep spell")
+                        log("[BLACKJACK SLEEP] Removed sleep spell")
                     else
-                        print("[BLACKJACK SLEEP] ERROR: types.Actor.spells is nil")
+                        log("[BLACKJACK SLEEP] ERROR: types.Actor.spells is nil")
                     end
 
-                    -- Check if types.Actor.stats exists
                     if types.Actor.stats and types.Actor.stats.dynamic and types.Actor.stats.dynamic.fatigue then
                         types.Actor.stats.dynamic.fatigue(self).current = 10
-                        print("[BLACKJACK SLEEP] Restored fatigue to 10")
+                        log("[BLACKJACK SLEEP] Restored fatigue to 10")
                     else
-                        print("[BLACKJACK SLEEP] ERROR: types.Actor.stats.dynamic.fatigue is nil")
+                        log("[BLACKJACK SLEEP] ERROR: types.Actor.stats.dynamic.fatigue is nil")
                     end
                 end)
                 
                 if not success then
-                    print("[BLACKJACK SLEEP] CRITICAL ERROR in timer callback:", err)
+                    log("[BLACKJACK SLEEP] CRITICAL ERROR in timer callback:", err)
                     -- Attempt emergency wake up
                     pcall(function() types.Actor.stats.dynamic.fatigue(self).current = 10 end)
                 end
@@ -662,7 +707,7 @@ local stopFn = time.runRepeatedly(function()
     
     -- If NPC takes damage while sleeping, wake them up
     if HealthValueB > HealthValueC and isSleepActive then
-        print("[BLACKJACK SLEEP] NPC took damage while sleeping, waking up")
+        log("[BLACKJACK SLEEP] NPC took damage while sleeping, waking up")
         types.Actor.spells(self):remove(SLEEP_SPELL_ID)
         types.Actor.stats.dynamic.fatigue(self).current = 10
         
@@ -675,19 +720,19 @@ local stopFn = time.runRepeatedly(function()
     -- Reset doOnce flag when spell ends AND restore hello/alarm values
     if doOnce == 1 and not isSleepActive then
         doOnce = 0
-        print("[BLACKJACK SLEEP] Spell ended, resetting state")
+        log("[BLACKJACK SLEEP] Spell ended, resetting state")
         
         -- Restore original hello value
         if originalHelloValue then
             types.NPC.stats.ai.hello(self).base = originalHelloValue
-            print("[BLACKJACK SLEEP] Restored hello value to:", originalHelloValue)
+            log("[BLACKJACK SLEEP] Restored hello value to:", originalHelloValue)
             originalHelloValue = nil  -- Clear stored value
         end
         
         -- Restore original alarm value
         if originalAlarmValue then
             types.NPC.stats.ai.alarm(self).base = originalAlarmValue
-            print("[BLACKJACK SLEEP] Restored alarm value to:", originalAlarmValue)
+            log("[BLACKJACK SLEEP] Restored alarm value to:", originalAlarmValue)
             originalAlarmValue = nil  -- Clear stored value
         end
         
@@ -697,24 +742,22 @@ local stopFn = time.runRepeatedly(function()
         end)
         
         if removeBlindSuccess then
-            print("[BLACKJACK SLEEP] Removed blind effect - NPC vision restored")
+            log("[BLACKJACK SLEEP] Removed blind effect - NPC vision restored")
         else
-            print("[BLACKJACK SLEEP] Could not remove blind effect:", removeBlindErr)
+            log("[BLACKJACK SLEEP] Could not remove blind effect:", removeBlindErr)
         end
         
         -- Notify global script that NPC is conscious again
         -- This will cancel the detection pulse
-        -- Notify global script that NPC is conscious again
-        -- This will cancel the detection pulse and trigger wake-up wander
         core.sendGlobalEvent('AntiTheft_NPCConscious', {
             npcId = self.id
         })
-        print("[BLACKJACK SLEEP] Sent conscious event directly to global - pulse cancelled / wander started")
+        log("[BLACKJACK SLEEP] Sent conscious event directly to global - pulse cancelled / wander started")
         
         -- Check if NPC was discovered by others while unconscious
         if not wasDiscoveredByOthers then
             -- NPC was NOT discovered - start 60-second witness timer
-            print("[BLACKJACK SLEEP] ★ NPC woke up undiscovered - starting 60-second witness window")
+            log("[BLACKJACK SLEEP] ★ NPC woke up undiscovered - starting 60-second witness window")
             
             local witnessStartTime = core.getRealTime()
             local witnessEndTime = witnessStartTime + 60
@@ -726,7 +769,7 @@ local stopFn = time.runRepeatedly(function()
                 
                 -- Check if 60 seconds have passed
                 if currentTime >= witnessEndTime then
-                    print("[BLACKJACK SLEEP] Witness window expired - NPC did not spot player")
+                    log("[BLACKJACK SLEEP] Witness window expired - NPC did not spot player")
                     witnessTimer = nil
                     return
                 end
@@ -749,7 +792,7 @@ local stopFn = time.runRepeatedly(function()
                         
                         if not rayResult or not rayResult.hit then
                             -- Player spotted! Apply bounty and attack
-                            print("[BLACKJACK SLEEP] ★★★ VICTIM SPOTTED PLAYER ★★★")
+                            log("[BLACKJACK SLEEP] ★★★ VICTIM SPOTTED PLAYER ★★★")
                             
                             -- CANCEL WAKE UP WANDER IMMEDIATELY
                             core.sendGlobalEvent('AntiTheft_StopWakeUpWander', { npcId = self.id })
@@ -767,7 +810,7 @@ local stopFn = time.runRepeatedly(function()
 
                             -- Apply bounty if player wasn't spotted during the hit (and bounty not yet applied)
                             -- Note: This block runs if player IS spotted just now upon waking
-                            print("[BLACKJACK SLEEP] Applying " .. stunBounty .. " gold bounty for witness (Victim)")
+                            log("[BLACKJACK SLEEP] Applying " .. stunBounty .. " gold bounty for witness (Victim)")
                             
                             -- Send bounty event through player relay (Targeting Player Script)
                             player:sendEvent("AntiTheft_Relay_SleepBounty", { 
@@ -779,7 +822,7 @@ local stopFn = time.runRepeatedly(function()
                             player:sendEvent("AntiTheft_NotifyWitnessAttack", { npcId = self.id })
                             
                             if isGuard(self) then
-                                print("[BLACKJACK SLEEP] Victim is GUARD - Initiating ARREST (Pursue + ForceDialog)")
+                                log("[BLACKJACK SLEEP] Victim is GUARD - Initiating ARREST (Pursue + ForceDialog)")
                                 
                                 -- Revert to 'Pursue' pkg as requested.
                                 -- Added 0.3s delay to ensure bounty is applied first
@@ -795,49 +838,8 @@ local stopFn = time.runRepeatedly(function()
                                 -- Notify player script to monitor distance and force dialogue
                                 player:sendEvent("AntiTheft_ExpectArrest", { npcId = self.id })
                             else
-                                print("[BLACKJACK SLEEP] Victim is CIVILIAN")
-                                
-                                -- 50/50 Chance: Combat or Scream/Flee
-                                if math.random() > 0.5 then
-                                    print("   -> Decision: COMBAT")
-                                    self:sendEvent('StartAIPackage', {
-                                        type = 'Combat',
-                                        target = player
-                                    })
-                                else
-                                    print("   -> Decision: SCREAM (Voice)")
-                                    -- Attempt to play voice from bed_voices
-                                    local bedVoices = require('scripts.antitheftai.modules.bed_voices')
-                                    local record = types.NPC.record(self)
-                                    if record and bedVoices then
-                                        local race = record.race:lower()
-                                        local gender = record.isMale and "male" or "female"
-                                        
-                                        -- Normalize race string
-                                        race = race:gsub(" ", "") 
-                                        
-                                        local voicesMap = bedVoices[race]
-                                        if not voicesMap then
-                                            voicesMap = bedVoices[record.race:lower()]
-                                        end
-                                        
-                                        if voicesMap and voicesMap[gender] then
-                                            local list = voicesMap[gender]
-                                            if #list > 0 then
-                                                local entry = list[math.random(#list)]
-                                                core.sound.say(entry.response, entry.file)
-                                                print("[BLACKJACK SLEEP] Played voice:", entry.file)
-                                            end
-                                        else
-                                            print("[BLACKJACK SLEEP] No voice found for", race, gender)
-                                            -- Fallback to combat if no voice
-                                            self:sendEvent('StartAIPackage', {
-                                                type = 'Combat',
-                                                target = player
-                                            })
-                                        end
-                                    end
-                                end
+                                log("[BLACKJACK SLEEP] Victim is CIVILIAN")
+                                handleCivilianReaction(self, player)
                             end
                             
                             -- Cancel witness timer
@@ -855,7 +857,7 @@ local stopFn = time.runRepeatedly(function()
             -- Start the timer
             witnessTimer = async:newUnsavableSimulationTimer(1, witnessCallback)
         else
-            print("[BLACKJACK SLEEP] NPC was discovered by others - no witness timer")
+            log("[BLACKJACK SLEEP] NPC was discovered by others - no witness timer")
         end
         
         -- Reset discovered flag for future blackjack hits
@@ -874,13 +876,244 @@ end, 1 * time.second)  -- Check every second
 ----------------------------------------------------------------------
 return {
     eventHandlers = {
+        S3CombatTargetAdded = function(target)
+            -- Check if this NPC is in a Fleeing state that needs restoration
+            if fleeRestoreData then
+                log("[S3CombatTargetAdded] NPC", self.id, "entered combat while Fleeing. Initiating restoration timer.")
+                
+                -- Clear flag immediately to prevent double-trigger
+                local data = fleeRestoreData
+                fleeRestoreData = nil
+                
+                -- Wait 3 seconds then restore original behavior
+                async:newUnsavableSimulationTimer(3, function()
+                    log("[FleeRestore] Restoration Timer Expired for", self.id)
+                    
+                    if types.NPC.stats.ai.fight(self) then types.NPC.stats.ai.fight(self).base = data.fight end
+                    if types.NPC.stats.ai.flee(self) then types.NPC.stats.ai.flee(self).base = data.flee end
+                    
+                    self:sendEvent('RemoveAIPackages')
+                    log("[FleeRestore] Combat Cancelled & Stats Restored (Fight:", data.fight, "Flee:", data.flee, ")")
+                end)
+            end
+        end,
         -- Event sent by global script when this NPC's unconscious body is discovered
         AntiTheft_BodyDiscovered = function(data)
             if data and data.npcId == self.id then
                 -- This NPC's body was discovered by another NPC
                 wasDiscoveredByOthers = true
-                print("[BLACKJACK SLEEP] Body discovered by another NPC - victim will not become witness")
+                log("[BLACKJACK SLEEP] Body discovered by another NPC - victim will not become witness")
+            end
+        end,
+        
+        -- Flee Effects Handler (Triggered by Global)
+        AntiTheft_ApplyFleeEffectsLocal = function(data)
+            -- EXTENSIVE DEBUG LOGGING
+            local debugPrefix = "[FLEE-DEBUG " .. self.id .. "] "
+            log(debugPrefix .. "Event received.")
+            
+            -- Safety: Never run this on the player
+            if self.type == types.Player then
+                log(debugPrefix .. "BLOCKED: Self is Player.")
+                return
+            end
+
+            if not data then 
+                log(debugPrefix .. "ERROR: No data received.")
+                return 
+            end
+            
+            local requestedStance = data.stance
+            log(debugPrefix .. "Requested Stance: " .. tostring(requestedStance))
+            log(debugPrefix .. "Types.Actor.STANCE.Weapon: " .. tostring(types.Actor.STANCE.Weapon))
+
+            if requestedStance then
+                -- 1. Set Stance
+                types.Actor.setStance(self, types.Actor.STANCE.Weapon)
+                log(debugPrefix .. "SetStance called.")
+                
+                -- Only apply effects if entering Flee/Weapon stance (Stance 2 - Weapon)
+                if requestedStance == types.Actor.STANCE.Weapon then
+                    log(debugPrefix .. "ENTERING FLEE MODE (Weapon Stance)")
+                    
+                    -- 2. Drain Magicka
+                    if types.Actor.stats.dynamic.magicka(self) then
+                        local mag = types.Actor.stats.dynamic.magicka(self)
+                        log(debugPrefix .. "Magicka before: " .. mag.current)
+                        mag.current = 0
+                        log(debugPrefix .. "Magicka drained to 0")
+                    else 
+                        log(debugPrefix .. "Magicka stat not found.")
+                    end
+
+                    -- 3. Enforce Silence (Magnitude 10000)
+                    local activeEffects = types.Actor.activeEffects(self)
+                    if activeEffects then
+                        local silenceEffect = activeEffects:getEffect(core.magic.EFFECT_TYPE.Silence)
+                        local currentMag = silenceEffect and silenceEffect.magnitude or 0
+                        local delta = 10000 - currentMag
+                        activeEffects:modify(delta, core.magic.EFFECT_TYPE.Silence)
+                        log(debugPrefix .. "Silence enforced. Old: " .. currentMag .. " Delta: " .. delta)
+                    else
+                        log(debugPrefix .. "ActiveEffects interface missing.")
+                    end
+
+                    -- 3.5 Clear Selected Castable (Prevent current cast)
+                    if types.Actor.clearSelectedCastable then
+                        types.Actor.clearSelectedCastable(self)
+                        log(debugPrefix .. "types.Actor.clearSelectedCastable(self) called.")
+                    else
+                        log(debugPrefix .. "WARN: types.Actor.clearSelectedCastable not available.")
+                    end
+
+                   -- 4. Drain Charges of ALL Items with Charge (Inventory + Equipped)
+fleeItemCharges = {} 
+log(debugPrefix .. "Starting Item Scan (Robust Mode)...")
+
+local inventory = types.Actor.inventory(self)
+local itemTypesToCheck = { types.Weapon, types.Armor, types.Clothing }
+local totalItemsScanned = 0
+local drainedCount = 0
+
+for _, itemType in ipairs(itemTypesToCheck) do
+    local items = inventory:getAll(itemType)
+    for _, item in ipairs(items) do
+        totalItemsScanned = totalItemsScanned + 1
+        local rec = itemType.record(item)
+        local debugId = rec.id
+        
+        -- Check if THIS specific item has an enchantment in its record
+        if rec.enchant and rec.enchant ~= "" then
+            -- Also verify the itemType supports enchantmentCharge
+            if itemType.enchantmentCharge then
+                local chargeStat = itemType.enchantmentCharge(item)
+                if chargeStat then
+                    local current = chargeStat.current
+                    log(debugPrefix .. "Examine: " .. debugId .. " Charge: " .. tostring(current))
+                    
+                    -- Only drain if it has logic-relevant charge (>0)
+                    if current > 0 then
+                         -- Store original
+                         fleeItemCharges[item] = current
+                         -- Drain
+                         chargeStat.current = 0
+                         drainedCount = drainedCount + 1
+                         log(debugPrefix .. "  >> DRAINED: " .. debugId .. " (Was " .. current .. ")")
+                    end
+                end
+            else
+                log(debugPrefix .. "Examine: " .. debugId .. " Has enchant but type doesn't support enchantmentCharge")
+            end
+        end
+    end
+end
+log(debugPrefix .. "Item Scan Complete. Scanned: " .. totalItemsScanned .. " Drained: " .. drainedCount)
+                    
+                    -- 5. Remove Scrolls (Temp Disable)
+                    fleeScrolls = {}
+                    local inventory = types.Actor.inventory(self)
+                    local books = inventory:getAll(types.Book)
+                    local scrollsRemoved = 0
+                    
+                    for _, item in ipairs(books) do
+                        local record = types.Book.record(item)
+                        if record and record.enchantment then
+                            table.insert(fleeScrolls, { recordId = record.id, count = item.count })
+                            inventory:remove(item)
+                            scrollsRemoved = scrollsRemoved + 1
+                            log(debugPrefix .. "Removed Scroll: " .. record.id)
+                        end
+                    end
+                    log(debugPrefix .. "Total Scrolls Removed: " .. scrollsRemoved)
+
+                elseif requestedStance == types.Actor.STANCE.Nothing then
+                    log(debugPrefix .. "EXITING FLEE MODE (Stance Nothing)")
+                
+                    -- Cleanup: Remove Silence (Reset magnitude)
+                    local silenceEffect = types.Actor.activeEffects(self):getEffect(core.magic.EFFECT_TYPE.Silence)
+                    if silenceEffect and silenceEffect.magnitude > 0 then
+                         types.Actor.activeEffects(self):modify(-(silenceEffect.magnitude), core.magic.EFFECT_TYPE.Silence)
+                         log(debugPrefix .. "Silence removed.")
+                    end
+                    
+                    -- Cleanup: Restore Item Charges (Moved to Global)
+                    
+                    -- Cleanup: Restore Scrolls (Moved to Global)
+                else 
+                     log(debugPrefix .. "Unknown Stance Requested: " .. tostring(requestedStance))
+                end
+            end
+        end,
+        
+        -- Event to initialize fleeing state locally (Self modifies Self)
+        AntiTheft_ApplyFleeStats = function(data)
+            log("[AntiTheft_ApplyFleeStats] Modifying AI stats for FLEE behavior on", self.id)
+            
+            -- Store original values for restoration
+            local originalFight = 90
+            local originalFlee = 0
+            if types.NPC.stats.ai.fight(self) then originalFight = types.NPC.stats.ai.fight(self).base end
+            if types.NPC.stats.ai.flee(self) then originalFlee = types.NPC.stats.ai.flee(self).base end
+
+            fleeRestoreData = {
+                fight = originalFight,
+                flee = originalFlee,
+                timestamp = core.getRealTime()
+            }
+
+            -- 1. Modify AI Stats (Fight=0, Flee=100)
+            if types.NPC.stats.ai.fight(self) then types.NPC.stats.ai.fight(self).base = 0 end
+            if types.NPC.stats.ai.flee(self) then types.NPC.stats.ai.flee(self).base = 100 end
+            
+            -- 2. Initial Setup: Set Stats Only
+            -- Silence/Demoralize/Magicka Drain moved to S3CombatTargetAdded to ensure they persist after combat init
+            
+            -- 3. Force Combat to Evaluate new stats
+            self:sendEvent('StartAIPackage', { 
+                type = 'Combat', 
+                target = data and data.target or nil 
+            })
+            
+            -- Debug: Verify stats
+            local newFight = types.NPC.stats.ai.fight(self).base
+            local newFlee = types.NPC.stats.ai.flee(self).base
+            log("[ApplyFleeStats] Stats verified - Fight:", newFight, "(Expected 0) | Flee:", newFlee, "(Expected 100)")
+            log("[ApplyFleeStats] Combat Started. Waiting for S3CombatTargetAdded event to trigger Silence & Restoration.")
+        end,
+
+        -- Flee Confirmation Event (Relayed from Player script when combat starts)
+        AntiTheft_FleeConfirm = function(target)
+            -- Check if this NPC is in a Fleeing state that needs restoration
+            if fleeRestoreData then
+                log("[AntiTheft_FleeConfirm] NPC", self.id, "entered combat while Fleeing. APPLYING SILENCE & RESTORATION TIMER.")
+                
+                -- Capture data closure
+                local data = fleeRestoreData
+                fleeRestoreData = nil -- Clear immediately to prevent loop/double trigger
+
+                -- [[ APPLY EFFECT LOGIC MOVED TO GLOBAL ]] --
+                core.sendGlobalEvent('AntiTheft_ApplyGlobalFlee', { npcId = self.id })
+                log("[AntiTheft_FleeConfirm] Sent 'AntiTheft_ApplyGlobalFlee' event to Global Script")
+                
+                -- Wait 4 seconds then restore (Wait... previous logical duration was ~30s?)
+                -- The restore timer is set to 30s in original code.
+                async:newUnsavableSimulationTimer(30, function()
+                    log("[FleeRestore] Timer Expired for", self.id)
+                    
+                    if types.NPC.stats.ai.fight(self) then types.NPC.stats.ai.fight(self).base = data.fight end
+                    if types.NPC.stats.ai.flee(self) then types.NPC.stats.ai.flee(self).base = data.flee end
+                    
+                    self:sendEvent('RemoveAIPackages')
+                    
+                    -- Reset Stance via Global Script
+                    core.sendGlobalEvent('AntiTheft_RemoveGlobalFlee', { npcId = self.id })
+                    
+                    log("[FleeRestore] Combat Cancelled, Stance Reset Requested & Stats Restored (Fight:", data.fight, "Flee:", data.flee, ")")
+                end)
+            else
+                -- log("[S3CombatTargetAdded] Normal combat start (No Flee Data)")
             end
         end
     }
 }
+
