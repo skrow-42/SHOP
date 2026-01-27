@@ -40,6 +40,7 @@ state.tDelay = 0
 state.tLOSCheck = 0
 state.tHierarchyCheck = 0
 state.tRefresh = 0
+state.tBedCheck = 0  -- Timer for bed proximity checks (runs every 0.5s)
 
 -- Position tracking
 state.lastSeenPlayer = nil
@@ -54,6 +55,10 @@ state.wasSneaking = false
 
 -- Hidden state tracking
 state.wasHidden = false
+
+-- Bed proximity voice state
+state.bedFirstVoiceFired = false
+state.bedSecondVoiceFired = false
 
 -- Effect removal tracking
 state.justRemovedInvisibility = false
@@ -95,6 +100,7 @@ state.disbandedGuards = {}  -- NPCs that were disbanded but should still detect 
 state.guardsPerCell = {}  -- cellName -> {guard = npc, following = true/false}
 state.postTeleportPositions = {}  -- npcId -> position where NPC was teleported to through doors
 state.twoPhaseReturns = {}  -- npcId -> true if using two-phase return (travel to post-teleport pos then teleport home)
+state.cellBeds = {}  -- Cache of bed positions per cell: cellName -> {positions = {pos1, pos2, ...}}
 
 
 
@@ -122,6 +128,7 @@ function state.reset()
     state.tLOSCheck = 0
     state.tHierarchyCheck = 0
     state.tRefresh = 0
+    state.tBedCheck = 0
     state.lastSeenPlayer = nil
     state.dialogueWasOpen = false
     state.wasSneakHidden = false
@@ -131,6 +138,8 @@ function state.reset()
     state.pendingSpellTeleport = false
     state.spellCastCell = nil
     state.justRecruitedAfterReturn = false
+    state.bedFirstVoiceFired = false
+    state.bedSecondVoiceFired = false
     -- Clear hello tracking on reset
     state.helloSet = {}
     state.pendingHelloRestorations = {}

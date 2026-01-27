@@ -87,10 +87,13 @@ config.DISABLED_NPC_NAME_CONTAINS = {}
 -- example: config.DISABLED_CELL_NAME_CONTAINS = {"kogo", "adama"} , disables every cell name containing added words
 config.DISABLED_CELL_NAME_CONTAINS = {"arena", "museum", "abecette", "canal", "plaza", "waistworks", "bath"}
 
--- Exterior cell exceptions (exact names that allow script activation, ie )
+-- Exterior cell whitelist - script ONLY runs in these exterior cells
+-- By default, script is DISABLED in ALL exterior cells (for performance)
+-- Add cell names here to enable script in specific exteriors
+-- Example: ["Seyda Neen"] = true
+-- Example: ["Vivec"] = true
 config.ENABLED_EXTERIOR_CELLS = {
-    ["Seyda Neen"] = false,
-    ["Vivec"] = false
+    -- Empty by default - add exterior cell names above to enable
 }
 
 -- Faction-based following (now dynamic based on NPC factions in cell)

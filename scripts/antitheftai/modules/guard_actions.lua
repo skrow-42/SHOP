@@ -161,6 +161,15 @@ function actions.recruit(npc, state, detection, self)
 
         npcRaceGenderMap[npc.id] = { race = race, gender = gender }
         log("Stored race and gender for NPC", npc.id, "Race:", race, "Gender:", gender)
+        
+        -- Register following NPC in global script with race/gender for bed detection
+        local core = require('openmw.core')
+        core.sendGlobalEvent('AntiTheft_RegisterFollowingNPC', {
+            npcId = npc.id,
+            race = race,
+            gender = gender
+        })
+        log("[RECRUIT] Registered following NPC in global script with race/gender")
     end
 
     -- attach
@@ -422,6 +431,10 @@ function actions.startSearch(state, detection, config)
     state.returningHome = false
     state.searchT = 0
     
+    -- Reset bed voice flags when NPC starts searching
+    state.bedFirstVoiceFired = false
+    state.bedSecondVoiceFired = false
+    
     -- Unregister as following NPC in global script
     core.sendGlobalEvent('AntiTheft_UnregisterFollowingNPC', {
         npcId = state.guard.id
@@ -494,6 +507,15 @@ function actions.goHome(state, core)
     state.searching = false
     state.returningHome = true
     state.searchT = 0
+    
+    -- Unregister from global script
+    local core = require('openmw.core')
+    core.sendGlobalEvent('AntiTheft_UnregisterFollowingNPC', {npcId = state.guard.id})
+    log("[GO HOME] Unregistered following NPC from global script")
+    
+    -- Reset bed voice flags when NPC goes home
+    state.bedFirstVoiceFired = false
+    state.bedSecondVoiceFired = false
 
     -- Unregister as following NPC in global script
     if state.guard and state.guard:isValid() then
@@ -580,6 +602,10 @@ function actions.teleportHome(state, core)
     state.searching = false
     state.returningHome = true
     state.searchT = 0
+    
+    -- Reset bed voice flags when NPC teleports home
+    state.bedFirstVoiceFired = false
+    state.bedSecondVoiceFired = false
 
     -- Unregister as following NPC in global script
     core.sendGlobalEvent('AntiTheft_UnregisterFollowingNPC', {

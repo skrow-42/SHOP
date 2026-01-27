@@ -78,14 +78,4 @@ function companionDetection.isCompanion(npc, player, state)
     return hasFollowPackage
 end
 
--- Clear the companion cache (call on cell change)
-function companionDetection.clearCache()
-    companionCache = {}
-end
-
--- Get cache for external access/debugging
-function companionDetection.getCache()
-    return companionCache
-end
-
 return companionDetection
