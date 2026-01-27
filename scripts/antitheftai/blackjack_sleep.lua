@@ -28,6 +28,8 @@ local core = require('openmw.core')
 local async = require('openmw.async')
 local nearby = require('openmw.nearby')  -- For accessing nearby actors
 local util = require('openmw.util')  -- For vector3 operations
+local settings = require('scripts.antitheftai.SHOPsettings')
+local companionDetection = require('scripts.antitheftai.modules.companion_detection')
 
 -- Blackjack weapon IDs that trigger sleep effects
 local BLACKJACK_WEAPONS = {
@@ -79,6 +81,10 @@ local SLEEP_SPELL_ID = 'detd_sleep_spell3'
 local SLEEP_DURATION = 60  -- seconds
 local ILLEGAL_SLEEP_VALUE = 99
 
+local calculatedSleepDuration = 0
+local mechanics = require('scripts.antitheftai.modules.blackjack_mechanics')
+local bedVoices = require('scripts.antitheftai.modules.bed_voices')
+
 -- State tracking
 local doOnce = 0
 local sleepTimerHandle = nil
@@ -89,8 +95,6 @@ local wasDiscoveredByOthers = false  -- Track if body was discovered by another 
 local witnessTimer = nil  -- 60-second timer for victim witness detection
 local lastStunTime = nil -- Track last time NPC was stunned
 
-local bedVoices = require('scripts.antitheftai.modules.bed_voices')
-
 ----------------------------------------------------------------------
 -- Helper: Debug Logging
 ----------------------------------------------------------------------
@@ -100,7 +104,83 @@ local function log(...)
     end
 end
 
+----------------------------------------------------------------------
+-- Helper: Guard Check
+----------------------------------------------------------------------
+local function isGuard(npc)
+    if not npc then return false end
+    local record = types.NPC.record(npc)
+    if not (record and record.class) then return false end
+    local class = record.class:lower()
+    return class:find("guard") or class:find("ordinator") or class:find("buoyant") or class:find("lex")
+end
 
+----------------------------------------------------------------------
+-- Helper: Civilian Reaction Logic (Level Scaling + Demoralize)
+----------------------------------------------------------------------
+local function handleCivilianReaction(npc, player)
+    if not npc or not player then return end
+
+    -- Calculate level-based probabilities
+    local playerLevel = types.Actor.stats.level(player).current
+    local civilianLevel = types.Actor.stats.level(npc).current
+    local levelDiff = playerLevel - civilianLevel
+
+    -- Base chances
+    local attackChance = 10
+    local voiceChance = 30
+    local demoralizeChance = 60
+
+    -- Apply level scaling
+    if levelDiff > 0 then
+        local scaledDiff = math.min(levelDiff, 20)
+        if scaledDiff <= 10 then
+            attackChance = math.max(0, attackChance - scaledDiff)
+            demoralizeChance = demoralizeChance + scaledDiff
+        else
+            attackChance = 0
+            local extraLevels = scaledDiff - 10
+            voiceChance = math.max(20, 30 - extraLevels)
+            demoralizeChance = math.min(80, 70 + extraLevels)
+        end
+    elseif levelDiff < 0 then
+        local absDiff = math.abs(levelDiff)
+        local change = absDiff * 2
+        attackChance = attackChance + change
+        demoralizeChance = math.max(0, demoralizeChance - change)
+    end
+
+    local roll = math.random(100)
+    log("[CIVILIAN REACTION] Level Diff:", levelDiff, "Roll:", roll, "(Attack:", attackChance, "Voice:", attackChance + voiceChance, "Fear:", demoralizeChance, ")")
+
+    -- Get NPC race and gender for voice responses
+    local npcRecord = types.NPC.record(npc)
+    local race = npcRecord.race:lower():gsub(" ", "")
+    local gender = npcRecord.isMale and "male" or "female"
+
+    if roll <= attackChance then
+        log("[CIVILIAN REACTION] Result: COMBAT")
+        npc:sendEvent('StartAIPackage', {type = 'Combat', target = player})
+    elseif roll <= (attackChance + voiceChance) then
+        log("[CIVILIAN REACTION] Result: VOICE ONLY")
+        core.sendGlobalEvent('AntiTheft_PlayDetectionVoice', { 
+            npcId = npc.id, 
+            race = race, 
+            gender = gender 
+        })
+    else
+        log("[CIVILIAN REACTION] Result: DEMORALIZE / FLEE")
+        -- Use the existing local event handler for fleeing
+        npc:sendEvent('AntiTheft_ApplyFleeStats', { target = player })
+        
+        -- Shout for help
+        core.sendGlobalEvent('AntiTheft_PlayDetectionVoice', { 
+            npcId = npc.id, 
+            race = race, 
+            gender = gender 
+        })
+    end
+end
 
 ----------------------------------------------------------------------
 -- On Hit Handler - Detects blackjack weapon hits and applies spell
@@ -109,6 +189,12 @@ local function onHit(attack)
     -- Master Toggle Check
     if not settings.general:get('enableBlackjackSpawning') then
          return -- Mechanics disabled
+    end
+
+    -- Skip player companions and escort NPCs
+    if companionDetection.isCompanion(self) then
+        log("[BLACKJACK SLEEP] Target is a companion or escort - skipping stun mechanics")
+        return
     end
 
     -- Check if attacker exists
@@ -121,7 +207,8 @@ local function onHit(attack)
     local isHandToHand = false
     
     -- Check if hit by a weapon (blackjack)
-    if attack.weapon then
+    if attack.weapon and attack.weapon:isValid() then
+        -- Validate weapon exists before getting record
         local weaponRecord = types.Weapon.record(attack.weapon)
         if weaponRecord and weaponRecord.id then
             weaponId = weaponRecord.id:lower()
@@ -148,6 +235,11 @@ local function onHit(attack)
     end
     
     log("[BLACKJACK SLEEP] ★★★ STUN ATTEMPT DETECTED! ★★★")
+    
+    -- Reset flags for NEW stun attempt
+    wasDiscoveredByOthers = false
+    wasSpottedDuringHit = false
+    calculatedSleepDuration = 0
     
     -- Calculate if attack is from behind
     local util = require('openmw.util')
@@ -205,7 +297,6 @@ local function onHit(attack)
     end
     
     -- Calculate Chance using Shared Module
-    local mechanics = require('scripts.antitheftai.modules.blackjack_mechanics')
     local chance = mechanics.calculateStunChance(attack.attacker, self)
     log(string.format("[BLACKJACK SLEEP] Stun Chance Calculation: %.2f%%", chance))
     
@@ -221,7 +312,6 @@ local function onHit(attack)
     
     -- Calculate Duration using Shared Module (Pass configurable max cap)
     local maxCap = settings.vars and settings.vars:get('maxBlackjackDuration') or 45
-    local mechanics = require('scripts.antitheftai.modules.blackjack_mechanics')
     local duration = mechanics.calculateDuration(attack.attacker, weaponId, maxCap)
     calculatedSleepDuration = duration
     log(string.format("[BLACKJACK SLEEP] Duration Calculated: %.2fs (Max Cap: %ds)", duration, maxCap))
@@ -400,27 +490,110 @@ local stopFn = time.runRepeatedly(function()
                                 local canSeeHead = checkPart(vHead, "Head")
                                 
                                 if canSeeFeet or canSeeTorso or canSeeHead then
-                                    -- Guard Check Helper (Inline for scope access)
-                                    local function isGuard(npc)
-                                        if not npc then return false end
-                                        local record = types.NPC.record(npc)
-                                        if not (record and record.class) then return false end
-                                        local class = record.class:lower()
-                                        return class:find("guard") or class:find("ordinator") or class:find("buoyant") or class:find("lex")
-                                    end
-
                                     -- NPC discovered the body!
                                     log("[ANTI-THEFT] ★★★ BODY DISCOVERED! Witness:", actor.id, "saw unconscious NPC", self.id)
                                 
-                                    -- Delegate all discovery, bounty, reaction, and alarm logic to Global Script
-                                    core.sendGlobalEvent('AntiTheft_BodyDiscoveryRelay', {
-                                        witnessId = actor.id,
-                                        bodyId = self.id
-                                    })
+                                    -- Apply bounty if player wasn't spotted during the hit (and bounty not yet applied)
+                                    if not wasSpottedDuringHit and player then
+                                        log("[ANTI-THEFT] Crime reported! Applying bounty.")
+                                        
+                                        -- Trigger reaction voice on the witness
+                                        local witnessRecord = types.NPC.record(actor)
+                                        if witnessRecord then
+                                            local race = witnessRecord.race:lower():gsub(" ", "")
+                                            local gender = witnessRecord.isMale and "male" or "female"
+                                            core.sendGlobalEvent('AntiTheft_PlayDetectionVoice', { 
+                                                npcId = actor.id, 
+                                                race = race, 
+                                                gender = gender 
+                                            })
+                                        end
+
+                                        -- Pass table with AMOUNT and WITNESS ID
+                                        player:sendEvent("AntiTheft_Relay_SleepBounty", { 
+                                            amount = settings.bounties:get('stunNPCBounty') or 300, 
+                                            npcId = actor.id 
+                                        })
+                                        wasSpottedDuringHit = true
+                                    end
                                     
-                                    -- Wait for 0.5s before marking as discovered to allow Global to process
-                                    -- If we mark immediately, we might skip the pulse in Global (though unlikely)
+                                    -- Mark body as discovered so victim doesn't report upon waking
                                     wasDiscoveredByOthers = true
+                                    
+                                    -- Send discovering NPC into action
+                                    if player then
+                                        -- Notify player script to expect combat/arrest from this witness
+                                        player:sendEvent("AntiTheft_NotifyWitnessAttack", { npcId = actor.id })
+                                        
+                                        if isGuard(actor) then
+                                            log("[ANTI-THEFT] Witness is GUARD - Initiating ARREST")
+                                            
+                                            -- Revert to 'Pursue' pkg as requested.
+                                            -- Added 0.3s delay to ensure bounty is applied first (Race Condition Fix).
+                                            async:newUnsavableSimulationTimer(0.3, function()
+                                                if actor and actor:isValid() and player then
+                                                    actor:sendEvent('StartAIPackage', {
+                                                        type = 'Pursue',
+                                                        target = player
+                                                    })
+                                                end
+                                            end)
+                                            
+                                            -- Notify player script to monitor distance and force dialogue (Safety Net)
+                                        else
+                                            log("[ANTI-THEFT] Witness is CIVILIAN")
+                                            handleCivilianReaction(actor, player)
+                                        end
+                                        
+                                        -- **chain reaction ALARM**: Witness alerts other nearby NPCs
+                                        -- Radius: Configurable (Default 1000 Int / 3500 Ext)
+                                        local alarmRadius = settings.vars:get('interiorAlarmRadius') or 1000
+                                        if self.cell.isExterior then
+                                            alarmRadius = settings.vars:get('exteriorAlarmRadius') or 3500
+                                        end
+                                        log("[ANTI-THEFT] Witness shouting alarm! Alerting neighbors within " .. alarmRadius .. "u (Exterior: " .. tostring(self.cell.isExterior) .. ")")
+                                        
+                                        for _, neighbor in ipairs(nearby.actors) do
+                                            -- Filter: Must be NPC, Not Witness, Not Victim
+                                            if neighbor.type == types.NPC and neighbor.id ~= actor.id and neighbor.id ~= self.id then
+                                                -- Check distance to WITNESS
+                                                local distToWitness = (neighbor.position - actor.position):length()
+                                                
+                                                if distToWitness <= alarmRadius then
+                                                    -- Ensure neighbor is conscious
+                                                    local isNeighborConscious = not types.Actor.activeSpells(neighbor):isSpellActive(SLEEP_SPELL_ID)
+                                                    
+                                                    if isNeighborConscious then
+                                                        log("[ANTI-THEFT] Neighbor alerted by alarm:", neighbor.id)
+                                                        
+                                                        -- Notify player script (prevent disband) + Expect Arrest if Guard
+                                                        player:sendEvent("AntiTheft_NotifyWitnessAttack", { npcId = neighbor.id })
+                                                        
+                                                        -- Engage Combat or Arrest
+                                                        if isGuard(neighbor) then
+                                                            log("   -> Neighbor is Guard: Arresting (Pursue)")
+                                                            async:newUnsavableSimulationTimer(0.35, function()
+                                                                if neighbor and neighbor:isValid() and player then
+                                                                    neighbor:sendEvent('StartAIPackage', {
+                                                                        type = 'Pursue',
+                                                                        target = player
+                                                                    })
+                                                                end
+                                                            end)
+                                                        else
+                                                            log("   -> Neighbor is Civilian: Reaction")
+                                                            handleCivilianReaction(neighbor, player)
+                                                        end
+                                                    end
+                                                end
+                                            end
+                                        end
+                                    end
+                                
+                                    -- Mark as discovered to STOP further scans
+                                    wasDiscoveredByOthers = true
+                                    
+                                    -- Stop checking other NPCs immediately
                                     break
                             end
                         end
@@ -462,13 +635,13 @@ local stopFn = time.runRepeatedly(function()
         doOnce = 1
         
         if wasSpottedDuringHit then
-            -- Player was spotted - send bounty event (like illegal sleep spell would)
+            -- Player was spotted - send bounty event
             log("[BLACKJACK SLEEP] Sending bounty event - player was spotted during blackjack")
             local stunBounty = settings.bounties:get('stunNPCBounty') or 300
-            core.sendGlobalEvent("AntiTheft_Relay_SleepBounty", stunBounty)
+            core.sendGlobalEvent("AntiTheft_Relay_SleepBounty", { amount = stunBounty, npcId = self.id })
         else
-            -- Player was not spotted - stealthy takedown, no bounty event
-            log("[BLACKJACK SLEEP] Sleep activated (NO crime event sent - blackjack is legal stealth)")
+            -- Player was not spotted
+            log("[BLACKJACK SLEEP] Sleep activated (Stealthy takedown)")
         end
         
         core.sendGlobalEvent('AntiTheft_Relay_NPCUnconscious', {
@@ -555,6 +728,8 @@ local stopFn = time.runRepeatedly(function()
             log("[BLACKJACK SLEEP] Could not remove blind effect:", removeBlindErr)
         end
         
+        -- Remove blind effect (Moved resets to onHit to maintain memory across wake-up window)
+        
         -- Notify global script that NPC is conscious again
         -- This will cancel the detection pulse
         core.sendGlobalEvent('AntiTheft_NPCConscious', {
@@ -607,24 +782,32 @@ local stopFn = time.runRepeatedly(function()
                             
                             local stunBounty = settings.bounties:get('stunNPCBounty') or 300
                             
-                            -- Guard Check Helper
-                            local function isGuard(npc)
-                                if not npc then return false end
-                                local record = types.NPC.record(npc)
-                                if not (record and record.class) then return false end
-                                local class = record.class:lower()
-                                return class:find("guard") or class:find("ordinator") or class:find("buoyant") or class:find("lex")
-                            end
-
                             -- Apply bounty if player wasn't spotted during the hit (and bounty not yet applied)
                             -- Note: This block runs if player IS spotted just now upon waking
-                            log("[BLACKJACK SLEEP] Applying " .. stunBounty .. " gold bounty for witness (Victim)")
-                            
-                            -- Send bounty event through player relay (Targeting Player Script)
-                            player:sendEvent("AntiTheft_Relay_SleepBounty", { 
-                                amount = stunBounty, 
-                                npcId = self.id 
-                            })
+                            if not wasSpottedDuringHit then
+                                log("[BLACKJACK SLEEP] Applying " .. stunBounty .. " gold bounty for witness (Victim)")
+                                
+                                -- Trigger reaction voice on the victim
+                                local npcRecord = types.NPC.record(self)
+                                if npcRecord then
+                                    local race = npcRecord.race:lower():gsub(" ", "")
+                                    local gender = npcRecord.isMale and "male" or "female"
+                                    core.sendGlobalEvent('AntiTheft_PlayDetectionVoice', { 
+                                        npcId = self.id, 
+                                        race = race, 
+                                        gender = gender 
+                                    })
+                                end
+
+                                -- Send bounty event through player relay (Targeting Player Script)
+                                player:sendEvent("AntiTheft_Relay_SleepBounty", { 
+                                    amount = stunBounty, 
+                                    npcId = self.id 
+                                })
+                                wasSpottedDuringHit = true
+                            else
+                                log("[BLACKJACK SLEEP] Victim woke up and saw player, but crime was already reported. Skipping redundant shout/bounty.")
+                            end
                             
                             -- Notify player script to expect combat/arrest from this witness
                             player:sendEvent("AntiTheft_NotifyWitnessAttack", { npcId = self.id })

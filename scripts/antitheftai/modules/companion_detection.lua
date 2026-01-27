@@ -1,81 +1,101 @@
--- Companion Detection Module
--- Detects vanilla companion NPCs (NPCs following player via AI packages)
--- Excludes them from anti-theft script reactions
+local types = require('openmw.types')
+local core = require('openmw.core')
 
 local companionDetection = {}
 
--- Cache for companion status to avoid repeated checks
-local companionCache = {}
+----------------------------------------------------------------------
+-- HELPER: Get Player
+----------------------------------------------------------------------
+local function getPlayer(npc)
+    -- In OpenMW, we can't context-switch requires, so we must rely on what's available
+    -- or pass the player object IN if possible.
+    -- However, we can TRY to require things inside pcall to avoid crash on load.
+    
+    local successNearby, nearby = pcall(require, 'openmw.nearby')
+    if successNearby and nearby.players and #nearby.players > 0 then
+         return nearby.players[1]
+    end
 
--- Check if an NPC is a vanilla companion
+    local successWorld, world = pcall(require, 'openmw.world')
+    if successWorld and world.players and #world.players > 0 then
+        return world.players[1]
+    end
+
+    local successSelf, selfModule = pcall(require, 'openmw.self')
+    if successSelf and selfModule.type == types.Player then
+        return selfModule
+    end
+
+    return nil
+end
+
+----------------------------------------------------------------------
+-- LOGGING
+----------------------------------------------------------------------
+local function log(...)
+    print("[CompanionDetection]", ...)
+end
+
+-- Detects vanilla companion NPCs (NPCs following player via AI packages)
+-- Excludes them from anti-theft script reactions
 -- @param npc - The NPC actor to check
--- @param player - The player actor
--- @param state - The script state (contains our guard info)
 -- @return true if NPC is a companion, false otherwise
-function companionDetection.isCompanion(npc, player, state)
+function companionDetection.isCompanion(npc)
     if not npc or not npc:isValid() then
         return false
     end
     
     local npcId = npc.id
-    
-    -- Check cache first
-    if companionCache[npcId] ~= nil then
-        return companionCache[npcId]
+    local recordId = npc.recordId and npc.recordId:lower() or ""
+
+    -- 1. Check Record ID for Summons
+    if recordId:find("_summon$") or recordId:find("_summ$") then
+        return true
     end
+
+    -- 2. Check AI Packages (Preferred)
+    local aiChecked = false
     
-    -- If this is our script's guard, it's NOT a companion
-    if state and state.guard and state.guard:isValid() and state.guard.id == npcId then
-        companionCache[npcId] = false
-        return false
-    end
-    
-    -- Check if NPC has AI Follow package targeting the player
-    -- In OpenMW Lua, we can check AI packages via types.Actor
-    local types = require('openmw.types')
-    
-    -- Get AI packages for the NPC
-    local hasFollowPackage = false
-    
-    -- Check if NPC is following the player via AI package
-    -- We check the active AI state to see if they're following
-    if types.Actor and types.Actor.getAiSequence then
-        local sequence = types.Actor.getAiSequence(npc)
-        if sequence then
-            for _, package in ipairs(sequence) do
-                if package.type == 'Follow' and package.target == player then
-                    hasFollowPackage = true
-                    break
-                end
+    -- [Method A] types.Actor.activeAI (Current package)
+    if types.Actor.activeAI then
+        local status, aiState = pcall(types.Actor.activeAI, npc)
+        if status and aiState then
+            aiChecked = true
+            if aiState.package and (aiState.package.type == 'Follow' or aiState.package.type == 'Escort') then
+                return true
             end
         end
-    elseif types.Actor and types.Actor.activeAI then
-        -- Fallback to activeAI if getAiSequence is not available (older OpenMW versions)
-        local aiState = types.Actor.activeAI(npc)
-        if aiState then
-            -- Check if the AI state indicates following behavior
-            -- The exact implementation depends on OpenMW's AI system
-            -- For now, we'll use a heuristic: if NPC is very close to player and not in combat
-            local distance = (npc.position - player.position):length()
-            
-            -- Companions typically stay within ~300 units of player
-            if distance < 300 then
-                -- Additional check: companions usually have high disposition
-                local disposition = types.NPC.getBaseDisposition(npc, player) or 0
-                
-                -- If NPC is close and has high disposition, likely a companion
-                -- Threshold: 70+ disposition and within 300 units
-                if disposition >= 70 then
-                    hasFollowPackage = true
+    end
+
+    -- [Method B] types.Actor.getAiSequence (Full stack)
+    if types.Actor.getAiSequence then
+        local status, sequence = pcall(types.Actor.getAiSequence, npc)
+        if status and sequence then
+            aiChecked = true
+            for _, pkg in ipairs(sequence) do
+                if pkg and (pkg.type == "Follow" or pkg.type == "Escort") then
+                    return true
                 end
             end
         end
     end
+
+    -- 3. Heuristic Fallback for Local Scripts (Where AI checks might fail/return nil on other actors)
+    -- Only use this if AI checks failed or returned no results (due to access restrictions)
+    local player = getPlayer(npc)
+    if player then
+        local dist = (npc.position - player.position):length()
+        if dist < 400 then
+            -- Fallback: Disposition Check
+            -- High disposition + Close proximity = Likely Companion
+            local disposition = types.NPC.getDisposition(npc, player)
+            if disposition and disposition >= 80 then
+                 return true
+            end
+        end
+    end
     
-    -- Cache the result
-    companionCache[npcId] = hasFollowPackage
-    
-    return hasFollowPackage
+    return false
 end
 
 return companionDetection

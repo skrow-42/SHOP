@@ -391,64 +391,65 @@ local function pickGuard(allowCurrentGuard)
 
     for _, actor in ipairs(nearby.actors) do
         if actor.type == types.NPC then
-            local record = types.NPC.record(actor)
-            local essential = record and record.isEssential or false
+            -- Skip unconscious NPCs (stunned by blackjack)
+            if not types.Actor.activeSpells(actor):isSpellActive('detd_sleep_spell3') then
+                local record = types.NPC.record(actor)
+                local essential = record and record.isEssential or false
 
-            if not essential and not classification.isNpcDisabled(actor, disabledNpcNames, types) and utils.friendly(actor, self, types, nearby) then
-                if not state.mustCompleteReturn[actor.id] and not state.returnInProgress[actor.id] then
-                    local isDismissed = false
-                    for _, dismissedData in pairs(state.dismissedNPCs) do
-                        if dismissedData.npc.id == actor.id then
-                            isDismissed = true
-                            break
-                        end
-                    end
-
-                    if not isDismissed then
-                        -- Skip vanilla companions (NPCs following player via AI packages)
-                        if companionDetection.isCompanion(actor, self, state) then
-                            log("NPC", actor.id, "is a vanilla companion - skipping recruitment")
-                            goto continue
+                if not essential and not classification.isNpcDisabled(actor, disabledNpcNames, types) and utils.friendly(actor, self, types, nearby) then
+                    if not state.mustCompleteReturn[actor.id] and not state.returnInProgress[actor.id] then
+                        local isDismissed = false
+                        for _, dismissedData in pairs(state.dismissedNPCs) do
+                            if dismissedData.npc.id == actor.id then
+                                isDismissed = true
+                                break
+                            end
                         end
 
-                        -- Check disposition threshold (with caching)
-                        local npcDisposition
-                        local cached = dispositionCache[actor.id]
-                        
-                        -- Use cached disposition if available and cell hasn't changed
-                        if cached and cached.lastCheckedCell == currentCellName then
-                            npcDisposition = cached.disposition
-                        else
-                            -- Fetch fresh disposition
-                            npcDisposition = types.NPC.getDisposition(actor, self) or 50
-                            -- Cache it
-                            dispositionCache[actor.id] = {
-                                disposition = npcDisposition,
-                                lastCheckedCell = currentCellName
-                            }
-                            log("Checking NPC", actor.id, "- disposition:", npcDisposition, "threshold:", dispositionThreshold)
-                        end
-                        
-                        if npcDisposition > dispositionThreshold then
-                            goto continue
-                        end
+                        if not isDismissed then
+                            -- Skip vanilla companions (NPCs following player via AI packages)
+                             if companionDetection.isCompanion(actor) then
+                                 log("NPC", actor.id, "is a vanilla companion - skipping recruitment")
+                                 goto continue_pick
+                            end
 
-                        if allowCurrentGuard or not (state.guard and actor.id == state.guard.id) then
-                            local d = (actor.position - self.position):length()
-                            if d <= config.PICK_RANGE and detection.canNpcSeePlayer(actor, self, nearby, types, config) then
-                local priority = classification.getNPCPriority(actor, types, self, self.cell, config, nearby)
-                                if priority < bestPriority or (priority == bestPriority and d < bestDist) then
-                                    best = actor
-                                    bestPriority = priority
-                                    bestDist = d
+                            -- Check disposition threshold (with caching)
+                            local npcDisposition
+                            local cached = dispositionCache[actor.id]
+                            
+                            -- Use cached disposition if available and cell hasn't changed
+                            if cached and cached.lastCheckedCell == currentCellName then
+                                npcDisposition = cached.disposition
+                            else
+                                -- Fetch fresh disposition
+                                npcDisposition = types.NPC.getDisposition(actor, self) or 50
+                                -- Cache it
+                                dispositionCache[actor.id] = {
+                                    disposition = npcDisposition,
+                                    lastCheckedCell = currentCellName
+                                }
+                                log("Checking NPC", actor.id, "- disposition:", npcDisposition, "threshold:", dispositionThreshold)
+                            end
+                            
+                            if npcDisposition <= dispositionThreshold then
+                                if allowCurrentGuard or not (state.guard and actor.id == state.guard.id) then
+                                    local d = (actor.position - self.position):length()
+                                    if d <= config.PICK_RANGE and detection.canNpcSeePlayer(actor, self, nearby, types, config) then
+                                        local priority = classification.getNPCPriority(actor, types, self, self.cell, config, nearby)
+                                        if priority < bestPriority or (priority == bestPriority and d < bestDist) then
+                                            best = actor
+                                            bestPriority = priority
+                                            bestDist = d
+                                        end
+                                    end
                                 end
                             end
                         end
                     end
-                    ::continue::
                 end
             end
         end
+        ::continue_pick:: ;
     end
 
     return best, bestPriority
@@ -509,7 +510,7 @@ local function onClearSearchState(eventData)
         log("Clearing search state for NPC", eventData.npcId, "- NPC was teleported home")
 
         -- Clear all search-related state for this NPC
-        core.sendGlobalEvent('AntiTheft_CancelSearchTimer', { npcId = state.guard.id })
+        core.sendGlobalEvent('AntiTheft_CancelSearchTimer', { npcId = eventData.npcId })
         state.searching = false
         state.searchT = 0
         state.searchTime = nil
@@ -1419,8 +1420,10 @@ local function onUpdate(dt)
     local isDialogueOpen = false
     
     -- Attempt to check UI mode using standard or provided API
-    if UI and UI.Mode and UI.Mode.Dialogue then
-        isDialogueOpen = UI.Mode.Dialogue
+    if ui and ui.MODE and ui.MODE.Dialogue then
+        isDialogueOpen = ui.MODE.Dialogue
+    elseif ui and ui.Mode and ui.Mode.Dialogue then
+         isDialogueOpen = ui.Mode.Dialogue
     else
         -- Fallback: Checking if world is paused AND a window is open that isn't the inventory/menu
         -- This is tricky without exact API. For now, rely on core.isWorldPaused() as a proxy 
@@ -1487,7 +1490,7 @@ local function onUpdate(dt)
             for _, actor in ipairs(nearby.actors) do
                 if actor.type == types.NPC and actor:isValid() and not types.Actor.isDead(actor) then
                     -- Exclude companions from effect removal
-                    if not companionDetection.isCompanion(actor, self, state) then
+                    if not companionDetection.isCompanion(actor) then
                         local dist = (actor.position - self.position):length()
                         
                         if dist <= maxLaunchRange then
@@ -1649,7 +1652,11 @@ local function onUpdate(dt)
         lastStunUpdate = currentTime
         
         -- 1. Early exit if Stun Display is OFF (saves performance)
-        local displayMode = config.STUN_CHANCE_DISPLAY or 'off'
+        local displayMode = config.STUN_CHANCE_DISPLAY or 'contextual'
+        if settings.general:get('stunChanceDisplay') == 'off' then
+            displayMode = 'off'
+        end
+        
         if displayMode ~= 'off' then
             
             -- 2. Check Stance BEFORE Raycasting
@@ -2447,7 +2454,7 @@ local function onUpdate(dt)
                                     -- Skip if this is a merchant that just returned home
                                     if state.merchantJustReturned == actor.id then
                                         log("ForceLOSCheck - Skipping merchant", actor.id, "- just returned home, waiting for LoS loss")
-                                        goto continue
+                                        goto continue_scan
                                     end
                                     
                                     -- Check disposition threshold
@@ -2455,7 +2462,7 @@ local function onUpdate(dt)
                                     log("ForceLOSCheck - Checking NPC", actor.id, "- disposition:", npcDisposition, "threshold:", dispositionThreshold)
                                     if npcDisposition > dispositionThreshold then
                                         log("ForceLOSCheck - NPC", actor.id, "has disposition", npcDisposition, "above threshold", dispositionThreshold, "- skipping")
-                                        goto continue
+                                        goto continue_scan
                                     end
 
                                     local d = (actor.position - self.position):length()
@@ -2470,7 +2477,7 @@ local function onUpdate(dt)
                                 end
                             end
                         end
-                        ::continue::
+                        ::continue_scan:: ;
                     end
                 end
                 if best then
@@ -3171,7 +3178,7 @@ return {
             if not data or not data.npcId then return end
             log("[DOOR INVESTIGATION] Clearing guard state for NPC:", data.npcId)
             state.following = false
-            core.sendGlobalEvent('AntiTheft_CancelSearchTimer', { npcId = state.guard.id })
+            core.sendGlobalEvent('AntiTheft_CancelSearchTimer', { npcId = data.npcId })
             state.searching = false
             state.returningHome = false
             state.guard = nil
@@ -3219,6 +3226,12 @@ return {
             
             -- Check Faction Rank Compliance: Suppress body discovery if rank is high enough
             if self.cell and not self.cell.isExterior then
+                -- NEW: Also check if the victim is a player companion (Escort/Follow)
+                if companionDetection.isCompanion(data.npcId and nearby.getObjectByEntityId(data.npcId) or nil) then
+                     log("[PLAYER RELAY] Unconscious NPC is a companion - suppressing global unconscious event")
+                     return
+                end
+
                 local cellFaction = classification.detectCellFaction(nearby, types)
                 if cellFaction then
                     if types.NPC and types.NPC.getFactions then
@@ -3287,31 +3300,32 @@ return {
         end,
         AntiTheft_Relay_SleepBounty = function(data)
             log("[PLAYER RELAY] Processing sleep bounty event")
-            local amount = data
+            local amount = 0
             local npcId = nil
             
             -- Handle table input (new format)
             if type(data) == 'table' then
-                amount = data.amount
+                amount = data.amount or 0
                 npcId = data.npcId
+            elseif type(data) == 'number' then
+                amount = data
             end
             
-            -- User Request: Use stunNPCBounty for Illegal Sleep Spell
-            amount = settings.bounties:get('stunNPCBounty')
+            -- User Request: Use stunNPCBounty for Illegal Sleep Spell / Stun
+            local settingAmount = settings.bounties:get('stunNPCBounty') or 300
+            if amount == 0 then amount = settingAmount end
             
             if amount > 0 then
-                log("[PLAYER RELAY] Sending Bounty Event to Global (Global Patch Applied). Amount:", amount)
-                -- We now trust the Global Script patch to apply the bounty unconditionally.
-                -- Sending event with all necessary data.
+                log("[PLAYER RELAY] Relaying bounty to global. Amount:", amount, "NPC:", npcId)
                 core.sendGlobalEvent('AntiTheft_SetPlayerBounty', {
                     bountyAmount = amount,
                     npcId = npcId,
-                    reason = "Illegal Sleep Spell"
+                    reason = "Assault (Blackjack Stun)"
                 })
-                -- Local UI message still good for immediate feedback
-                ui.showMessage("Crime Reported! Bounty added: " .. amount)
+                
+                -- Local UI message for feedback (Removed as requested)
             else
-                log("[PLAYER RELAY] Error: Invalid bounty amount received")
+                log("[PLAYER RELAY] Error: Invalid bounty amount received (0)")
             end
         end,
         

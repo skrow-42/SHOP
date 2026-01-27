@@ -66,7 +66,7 @@ function mechanics.calculateStunChance(attacker, victim, levelDiffPenalty)
     
     -- Formula: Average of the three stats
     -- Max possible average is 100 (if all are 100)
-    local baseChance = (str + sneak + blunt) / 6
+    local baseChance = (str + sneak + blunt) / 2
 
     -- 2. Level Difference Penalty
     -- User: each level NPC is higher than player reduces chance by 1%

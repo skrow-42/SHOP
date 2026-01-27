@@ -86,7 +86,7 @@ config.DISABLED_CELL_NAMES = {"imperial prison ship", "mournhold, godsreach", "m
 -- example: config.DISABLED_NPC_NAME_CONTAINS = {"farg", "cosad"} , disables every NPC name containing added words
 config.DISABLED_NPC_NAME_CONTAINS = {}
 -- example: config.DISABLED_CELL_NAME_CONTAINS = {"kogo", "adama"} , disables every cell name containing added words
-config.DISABLED_CELL_NAME_CONTAINS = {"arena", "museum", "abecette", "canal", "plaza", "waistworks", "bath"}
+config.DISABLED_CELL_NAME_CONTAINS = {"arena", "museum", "abecette", "canal", "plaza", "waistworks", "bath", "temple", "hostel"}
 
 -- Exterior cell whitelist - script ONLY runs in these exterior cells
 -- By default, script is DISABLED in ALL exterior cells (for performance)

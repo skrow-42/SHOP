@@ -30,6 +30,7 @@ local seenMessages = {}
 local core = require('openmw.core')
 local types = require('openmw.types')
 local world = require('openmw.world')
+local util = require('openmw.util')
 local classification = require('scripts.antitheftai.modules.npc_classification')
 local companionDetection = require('scripts.antitheftai.modules.companion_detection')
 local bedVoices = require('scripts.antitheftai.modules.bed_voices')
@@ -177,6 +178,16 @@ local function scanBedsInCell(cell)
         log("[BED SCAN GLOBAL] Using cached bed scan for cell", cellName)
         return bedScanCache[cellName]
     end
+
+    -- Check for disabled cell name keys
+    local lowerCellName = cellName:lower()
+    for _, key in ipairs(config.DISABLED_CELL_NAME_CONTAINS) do
+        if lowerCellName:find(key:lower()) then
+            log("[BED SCAN GLOBAL] Cell", cellName, "contains disabled key", key, "- skipping bed scan")
+            bedScanCache[cellName] = {} -- Cache empty result to avoid re-checking
+            return {}
+        end
+    end
     
     -- Check if cell is disabled via configuration
     if classification.isCellDisabled(cell, config.DISABLED_CELL_NAMES) then
@@ -303,185 +314,6 @@ local function isNPCUnconscious(npc)
     return false
 end
 
--- Helper: Civilian Reaction Logic (Level Scaling + Demoralize)
-local function handleCivilianReaction(npc, player)
-    if not npc or not player then return end
-
-    -- Calculate level-based probabilities
-    local playerLevel = types.Actor.stats.level(player).current
-    local civilianLevel = types.Actor.stats.level(npc).current
-    local levelDiff = playerLevel - civilianLevel
-
-    -- Base chances (Phase 0 - Equal Level)
-    local attackChance = 10
-    local voiceChance = 30
-    local demoralizeChance = 60
-
-    -- Apply level scaling
-    if levelDiff > 0 then
-        -- === PLAYER ADVANTAGE (Player > NPC) ===
-        local scaledDiff = math.min(levelDiff, 20)
-        if scaledDiff <= 10 then
-            attackChance = math.max(0, attackChance - scaledDiff)
-            demoralizeChance = demoralizeChance + scaledDiff
-        else
-            attackChance = 0
-            local extraLevels = scaledDiff - 10
-            voiceChance = math.max(20, 30 - extraLevels)
-            demoralizeChance = math.min(80, 70 + extraLevels)
-        end
-    elseif levelDiff < 0 then
-        -- === NPC ADVANTAGE (NPC > Player) ===
-        local absDiff = math.abs(levelDiff)
-        local change = absDiff * 2
-        attackChance = attackChance + change
-        demoralizeChance = math.max(0, demoralizeChance - change)
-        -- Cap: Max 70% Combat, min 0% Flee
-        if attackChance > 70 then attackChance = 70 end
-    end
-
-    local roll = math.random(100)
-    log(string.format("[Reaction] NPC %s: Roll %d vs (Atk %.1f / Voice %.1f / Flee %.1f)", npc.id, roll, attackChance, voiceChance, demoralizeChance))
-
-    if roll <= attackChance then
-        npc:sendEvent('StartAIPackage', { type = 'Combat', target = player })
-    elseif roll <= (attackChance + voiceChance) then
-        -- Voice logic - Play a scream/alarm
-        local record = types.NPC.record(npc)
-        if record and bedVoices then
-            local raceKey = record.race:lower():gsub(" ", "")
-            local gender = record.isMale and "male" or "female"
-            local voices = (bedVoices[raceKey] and bedVoices[raceKey][gender]) or (bedVoices[record.race:lower()] and bedVoices[record.race:lower()][gender])
-            
-            if voices and #voices > 0 then
-                local entry = voices[math.random(#voices)]
-                local voicePath = entry.file
-                if not voicePath:find("^sound/") then voicePath = "sound/" .. voicePath:gsub("^Vo/", "vo/") end
-                core.sound.say(voicePath, npc, entry.response)
-            else
-                -- Fallback to combat if no voice
-                npc:sendEvent('StartAIPackage', { type = 'Combat', target = player })
-            end
-        end
-    else
-        -- Flee logic - Delegate to local script
-        npc:sendEvent('AntiTheft_ApplyFleeStats', { target = player })
-    end
-end
-
--- Helper: Chain Reaction Alarm
-local function triggerAlarmChain(actor, player)
-    local isExt = actor.cell.isExterior
-    local alarmRadius = isExt and 2500 or 1000
-    log("[ALARM] Witness %s shouting alarm! Radius: %d", actor.id, alarmRadius)
-    
-    for _, neighbor in ipairs(world.activeActors) do
-        if neighbor.type == types.NPC and neighbor.id ~= actor.id and not isNPCUnconscious(neighbor) then
-            -- Allow crossing cell boundaries in exteriors
-            if neighbor.cell.isExterior == isExt then
-                local dist = (neighbor.position - actor.position):length()
-                if dist <= alarmRadius then
-                    log("[ALARM] Neighbor alerted: %s", neighbor.id)
-                    
-                    -- Notify player to expect combat/pursuit (prevents disband)
-                    player:sendEvent('AntiTheft_NotifyWitnessAttack', { npcId = neighbor.id })
-                    
-                    if utils.isGuard(neighbor, types) then
-                        neighbor:sendEvent('StartAIPackage', { type = 'Pursue', target = player })
-                    else
-                        handleCivilianReaction(neighbor, player)
-                    end
-                end
-            end
-        end
-    end
-end
-
--- Helper function to handle the actual discovery logic after LoS is confirmed
-local function handleBodyDiscovery(consciousNpc, unconsciousNpc, unconsciousNpcId)
-    local consciousId = consciousNpc.id
-    local player = world.players[1]
-    
-    log("[PULSE] Conscious NPC", consciousId, "detected unconscious NPC", unconsciousNpcId)
-    
-    -- Mark discovery
-    if not bodyDiscoveries[consciousId] then
-        bodyDiscoveries[consciousId] = {}
-    end
-    bodyDiscoveries[consciousId][unconsciousNpcId] = true
-    
-    -- Notify the unconscious NPC that they were discovered
-    unconsciousNpc:sendEvent('AntiTheft_BodyDiscovered', {
-        npcId = unconsciousNpcId,
-        discovererNpcId = consciousId
-    })
-    
-    -- Check if bounty was already applied during blackjack hit
-    local npcState = unconsciousNPCStates[unconsciousNpcId]
-    if npcState and not npcState.wasSpotted then
-        log("[PULSE] Applying gold bounty for body discovery")
-        core.sendGlobalEvent("detdGlobalCheckSleep", DISCOVERY_BOUNTY_VALUE)
-        npcState.wasSpotted = true
-    end
-    
-    -- Conditional Reaction: Only react if player is visible to the witness
-    local isExt = consciousNpc.cell.isExterior
-    local canSeePlayer = false
-    if player and player.cell.isExterior == isExt then
-        if world.castRay then
-            -- Check LoS to player (Eye level to Eye level roughly)
-            local observerPos = consciousNpc.position + util.vector3(0, 0, 90)
-            local playerPos = player.position + util.vector3(0, 0, 90)
-            local ray = world.castRay(observerPos, playerPos, {collisionType = 3, ignore = {consciousNpc}})
-            if not ray or not ray.hit or (ray.hitObject and ray.hitObject.id == player.id) then
-                canSeePlayer = true
-            end
-        else
-            -- If castRay missing, assume visible if within reasonable range (800)
-            canSeePlayer = (consciousNpc.position - player.position):length() <= 800
-        end
-    end
-
-    if canSeePlayer then
-        log("[PULSE] Witness %s sees player - Triggering criminal response", consciousId)
-        
-        -- Notify player to expect attack (important for disband logic)
-        player:sendEvent('AntiTheft_NotifyWitnessAttack', { npcId = consciousId })
-        
-        if utils.isGuard(consciousNpc, types) then
-            consciousNpc:sendEvent('StartAIPackage', { type = 'Pursue', target = player })
-        else
-            handleCivilianReaction(consciousNpc, player)
-        end
-    else
-        log("[PULSE] Witness %s sees body but NOT player - Dispatching closest guard to investigate", consciousId)
-        local closestGuard = nil
-        local minDist = math.huge
-        for _, actor in ipairs(world.activeActors) do
-            if actor.type == types.NPC and utils.isGuard(actor, types) and not isNPCUnconscious(actor) and actor.cell.isExterior == isExt then
-                local d = (actor.position - consciousNpc.position):length()
-                if d < minDist then
-                    minDist = d
-                    closestGuard = actor
-                end
-            end
-        end
-        
-        if closestGuard then
-            log("[PULSE] Sending guard %s to investigate witness position for NPC %s", closestGuard.id, consciousId)
-            closestGuard:sendEvent('RemoveAIPackages')
-            closestGuard:sendEvent('StartAIPackage', {
-                type = 'Travel',
-                destPosition = consciousNpc.position,
-                cancelOther = true
-            })
-        end
-    end
-    
-    -- Spread the alarm regardless (everyone shouts help if a body is found)
-    triggerAlarmChain(consciousNpc, player)
-end
-
 -- Pulse emission function - scans for nearby conscious NPCs and alerts them
 local function emitDetectionPulse(unconsciousNpc, unconsciousNpcId)
     if not (unconsciousNpc and unconsciousNpc:isValid()) then
@@ -501,61 +333,11 @@ local function emitDetectionPulse(unconsciousNpc, unconsciousNpcId)
         unconsciousNPCStates[unconsciousNpcId] = nil
         return
     end
-    
-    local pulseRange = unconsciousNpc.cell.isExterior and PULSE_RANGE_EXTERIOR or PULSE_RANGE_INTERIOR
-    log("[PULSE] NPC", unconsciousNpcId, "emitting " .. pulseRange .. "-unit detection pulse...")
-    
-    local unconsciousPos = unconsciousNpc.position
-    local player = world.players[1]
-    
-    -- Scan for conscious NPCs in the same cell
-    for _, consciousNpc in ipairs(world.activeActors) do
-        if consciousNpc.type == types.NPC and 
-           consciousNpc.id ~= unconsciousNpcId and 
-           consciousNpc.cell == unconsciousNpc.cell and
-           not isNPCUnconscious(consciousNpc) then
-            
-            local consciousId = consciousNpc.id
-            
-            -- Check if this NPC already discovered this body
-            if not (bodyDiscoveries[consciousId] and bodyDiscoveries[consciousId][unconsciousNpcId]) then
-                -- Calculate distance
-                local dist = (consciousNpc.position - unconsciousPos):length()
-                
-                if dist <= pulseRange then
-                    -- Check if world.castRay is available (OpenMW 0.49+)
-                    if world.castRay then
-                        local rayResult = world.castRay(consciousNpc.position, unconsciousPos)
-                        if not rayResult or not rayResult.hit then
-                            log("[PULSE] Conscious NPC", consciousId, "detected unconscious NPC", unconsciousNpcId, "at", math.floor(dist), "units (LoS clear via world.castRay)")
-                            handleBodyDiscovery(consciousNpc, unconsciousNpc, unconsciousNpcId)
-                            break
-                        else
-                            log("[PULSE] NPC", consciousId, "at", math.floor(dist), "units but LoS blocked")
-                        end
-                    else
-                        -- API missing (Older versions or Engine limit) - delegate to player script
-                        log("[PULSE] world.castRay missing - delegating LoS check to player script for NPC", consciousId)
-                        if player then
-                            player:sendEvent('AntiTheft_RequestBodyLOSCheck', {
-                                witnessId = consciousId,
-                                bodyId = unconsciousNpcId,
-                                bodyPos = unconsciousPos,
-                                witnessPos = consciousNpc.position
-                            })
-                            -- Only delegate one check per pulse to prevent flooding
-                            break
-                        end
-                    end
-                end
-            end
-        end
-    end
-    
-    -- Schedule next pulse in 1 second
-    unconsciousPulseTimers[unconsciousNpcId] = async:newUnsavableSimulationTimer(PULSE_INTERVAL, function()
-        emitDetectionPulse(unconsciousNpc, unconsciousNpcId)
-    end)
+
+    -- GLOBAL PULSE DISABLED: Relying on local script (blackjack_sleep.lua) for detection.
+    -- Global scripts cannot reliably check LoS across all objects.
+    log("[PULSE] NPC", unconsciousNpcId, "pulse skipped (using local detection)")
+    return
 end
 
 ----------------------------------------------------------------------
@@ -595,10 +377,14 @@ local function finishReturn(rot)
         local player = world.players[1]
         if player then
             player:sendEvent('AntiTheft_NPCReady', { npcId = rot.npcId })
+            player:sendEvent('AntiTheft_ClearSearchState', { npcId = rot.npcId })
             log("✓ NPC", rot.npcId, "ready – can detect player")
         else
             log("ERROR: Could not find player to send ready event")
         end
+
+        -- Enable default AI behavior after teleporting home
+        npc:sendEvent('AntiTheft_EnableDefaultAI')
 
         -- Clear teleporting flag immediately (async not available in global scripts)
         teleportingNPCs[rot.npcId] = nil
@@ -805,39 +591,15 @@ local function processPendingReturns(dt)
                                 state.postTeleportPositions[ret.npcId] = nil
                             end
                         else
-                            -- Fallback: No return position stored, teleport directly to home
-                            log("NPC", ret.npcId, "arrived at post-teleport position - teleporting directly to home (no return position)")
+                            -- Fallback: No return position stored, start smooth rotation
+                            log("NPC", ret.npcId, "arrived at post-teleport position - starting smooth rotation (no return position)")
 
                             local npc = findNPC(ret.npcId)
                             if npc and npc:isValid() then
                                 npc:sendEvent('RemoveAIPackages')
 
-                                log("NPC", ret.npcId, "reached home. Applying direct rotation teleport")
-                                log("  Target rotation - X:", math.deg(ret.homeRotation.x), "Y:", math.deg(ret.homeRotation.y), "Z:", math.deg(ret.homeRotation.z))
-
-                                -- Build final rotation transform
-                                local finalRot = util.transform.rotateZ(ret.homeRotation.z) *
-                                                 util.transform.rotateY(ret.homeRotation.y) *
-                                                 util.transform.rotateX(ret.homeRotation.x)
-
-                                -- Teleport NPC to home position with correct rotation
-                                npc:teleport(npc.cell.name, ret.exactHomePosition, {
-                                    rotation = finalRot,
-                                    onGround = true
-                                })
-
-                                log("NPC teleported to home with rotation - COMPLETE")
-
-                                -- Send ready event immediately
-                                local player = world.players[1]
-                                if player then
-                                    player:sendEvent('AntiTheft_NPCReady', { npcId = ret.npcId })
-                                    player:sendEvent('AntiTheft_ClearSearchState', { npcId = ret.npcId })
-                                    log("  ✓ Sent NPCReady and ClearSearchState events")
-                                end
-
-                                -- Enable default AI behavior after teleporting home
-                                npc:sendEvent('AntiTheft_EnableDefaultAI')
+                                -- Start rotation to home orientation (No Teleport)
+                                startGlobalRotation(npc, ret.homeRotation, 0.85, ret.exactHomePosition, ret.homeRotation)
                             end
 
                             -- Clear two-phase return state
@@ -850,12 +612,8 @@ local function processPendingReturns(dt)
                             i = i - 1
                         end
                     else
-                        -- Normal return: arrived home, teleport to exact position then start rotation
-                        log("NPC", ret.npcId, "arrived home (within 5 units) - teleporting to exact position then rotating")
-
-                        -- Teleport to EXACT home position first
-                        npc:teleport(npc.cell.name, ret.exactHomePosition, { onGround = true })
-                        log("  ✓ Teleported to exact home position:", ret.exactHomePosition)
+                        -- Normal return: arrived home, start rotation (no teleport)
+                        log("NPC", ret.npcId, "arrived home (within 50 units) - starting rotation")
 
                         -- Clear AI packages
                         npc:sendEvent('RemoveAIPackages')
@@ -900,6 +658,11 @@ local function onStartWandering(data)
 
     local npc = findNPC(data.npcId)
     if npc and npc:isValid() then
+        -- Skip player companions and escort NPCs
+        if companionDetection.isCompanion(npc) then
+            log("  ⚠ NPC is a companion or escort - skipping wandering")
+            return
+        end
         log("  ✓ NPC found - sending search-style AI packages")
 
         -- Clear any existing AI packages
@@ -1260,8 +1023,18 @@ local function onTeleportHome(data)
 
     local npc = findNPC(data.npcId)
     if npc and npc:isValid() then
+        -- Skip player companions and escort NPCs
+        if companionDetection.isCompanion(npc) then
+            log("  ⚠ NPC is a companion or escort - skipping teleport home")
+            return
+        end
         -- NPC is loaded, teleport immediately
-        finalizeNPCReturn(data.npcId, data.homePosition, data.homeRotation)
+        -- NPC is loaded, start smooth rotation
+        -- First teleport to exact position to ensure correct starting point (optional, but good for consistency)
+        npc:teleport(npc.cell.name, data.homePosition, { onGround = true })
+        
+        -- Start smooth rotation
+        startGlobalRotation(npc, data.homeRotation, 0.85, data.homePosition, data.homeRotation)
     else
         -- NPC not loaded, add to pending teleports for when it loads
         log("  ⚠ NPC not found in loaded cells - adding to pending teleports")
@@ -1335,6 +1108,11 @@ local function onStartReturnHome(data)
 
     local npc = findNPC(data.npcId)
     if npc and npc:isValid() then
+        -- Skip player companions and escort NPCs
+        if companionDetection.isCompanion(npc) then
+            log("  ⚠ NPC is a companion or escort - skipping return home")
+            return
+        end
         log("  ✓ NPC found - sending travel package and setting up rotation")
         log("  Home position:", data.homePosition)
         log("  Distance:", math.floor((npc.position - data.homePosition):length()), "units")
@@ -1833,6 +1611,30 @@ local function playNpcVoiceResponse(npc, race, gender)
 end
 
 ----------------------------------------------------------------------
+-- ★★★ EVENT: Body Discovery Relay (from blackjack_sleep.lua) ★★★
+----------------------------------------------------------------------
+local function onBodyDiscoveryRelay(data)
+    if not data or not data.witnessId or not data.bodyId then return end
+    
+    log("[BODY DISCOVERY RELAY] Witness", data.witnessId, "found body", data.bodyId)
+    
+    local witness = findNPC(data.witnessId)
+    
+    if witness and witness:isValid() then
+        -- 1. Apply Disposition Penalty (Cell-wide)
+        onLowerCellDisposition()
+        
+        -- 2. Play Voice Response
+        onPlayNPCVoice({npcId = data.witnessId})
+        
+        -- 3. Alert Logic
+        log("[BODY DISCOVERY] Disposition lowered and voice played for witness", data.witnessId)
+        
+        -- Future: Can trigger specific guard investigation behaviors here if needed
+    end
+end
+
+----------------------------------------------------------------------
 -- ★★★ EVENT: Apply Lock Spell Bounty ★★★
 ----------------------------------------------------------------------
 local function onApplyLockSpellBounty(data)
@@ -1848,18 +1650,11 @@ local function onApplyLockSpellBounty(data)
         return
     end
 
-    -- Get current bounty (use getCrimeLevel, not getBounty)
-    local currentBounty = 0
-    if types.Player.getCrimeLevel then
-        currentBounty = types.Player.getCrimeLevel(player) or 0
-    end
-    log("  Current bounty:", currentBounty)
-
-    -- Add the bounty amount (use setCrimeLevel, not setBounty)
-    if types.Player.setCrimeLevel then
-        types.Player.setCrimeLevel(player, currentBounty + data.bountyAmount)
-    end
-    log("  New bounty:", currentBounty + data.bountyAmount)
+    -- Use unified and robust bounty logic
+    onSetPlayerBounty(data)
+    
+    local newBounty = (types.Player.getCrimeLevel and types.Player.getCrimeLevel(player)) or (types.Player.getBounty and types.Player.getBounty(player)) or 0
+    log("  New bounty:", newBounty)
     log("  hasFollowingNPC flag:", tostring(data.hasFollowingNPC))
     
     -- Send detection pulse to alert NPCs only if no NPC is following player
@@ -1970,27 +1765,20 @@ end
 
 
 local function onPlayNPCVoice(data)
-    if not data or not data.npcId or not data.voiceFile then
-        log("[AntiTheft_PlayNPCVoice] Missing npcId or voiceFile in event data")
+    if not data or not data.npcId then
+        log("[AntiTheft_PlayNPCVoice] Missing npcId in event data")
         return
     end
 
-    local npc = nil
-    for _, actor in ipairs(world.activeActors) do
-        if actor.id == data.npcId and actor.type == types.NPC then
-            npc = actor
-            break
-        end
-    end
-
+    local npc = findNPC(data.npcId)
+    
     if npc and npc:isValid() then
-        -- Use core.sound.say to play voice on NPC actor
-        core.sound.say(data.voiceFile, npc, data.response)
-        
-        local player = world.players[1]
-        if player then
+        if data.voiceFile then
+            -- Use core.sound.say to play specific voice file
+            core.sound.say(data.voiceFile, npc, data.response)
         else
-            log("[AntiTheft_PlayNPCVoice] Could not find player to show message")
+            -- Auto-resolve voice using the helper function
+            playNpcVoiceResponse(npc, data.race, data.gender)
         end
     else
         log("[AntiTheft_PlayNPCVoice] Could not find NPC", data.npcId)
@@ -2206,7 +1994,7 @@ local function performDoorLockCheck()
             if not foundFollowingNPC then
                 for _, actor in ipairs(world.activeActors) do
                     if actor and actor.type == types.NPC and actor:isValid() and not types.Actor.isDead(actor) and actor.cell == player.cell then
-                        if not companionDetection.isCompanion(actor, player, {}) then
+                        if not companionDetection.isCompanion(actor) then
                             local d = (actor.position - playerPos):length()
                             if d <= 1000 and d < npcDist then
                                 npcDist = d
@@ -2310,47 +2098,50 @@ end
 
 
 local function onSetPlayerBounty(data)
-    log("[GLOBAL] onSetPlayerBounty called")
+    log("[GLOBAL] onSetPlayerBounty call received")
     if not data or not data.bountyAmount then
-        log("[GLOBAL] Error: Invalid bounty data received")
+        log("[GLOBAL] ERROR: Missing bountyAmount in data package")
         return
     end
-    log("[GLOBAL] Bounty data received - Amount:", data.bountyAmount, "NPC:", data.npcId)
-
-    -- APPLY BOUNTY UNCONDITIONALLY FIRST
-    -- Get player from global context
-    local player = world.players[1]
-    if not player then
-        log("[GLOBAL] ERROR: Could not find player for bounty application")
-    else
-        -- Get current bounty
-        local currentBounty = 0
-        if types.Player.getBounty then
-            currentBounty = types.Player.getBounty(player) or 0
-        elseif types.Player.getCrimeLevel then
-            currentBounty = types.Player.getCrimeLevel(player) or 0
-        end
-        log("[GLOBAL] Current player bounty:", currentBounty)
-        
-        local newBounty = currentBounty + data.bountyAmount
-        log("[GLOBAL] Setting new bounty to:", newBounty)
     
-        -- Set new bounty
-        if types.Player.setBounty then
-            types.Player.setBounty(player, newBounty)
-            log("[GLOBAL] Used types.Player.setBounty")
-        elseif types.Player.setCrimeLevel then
-            types.Player.setCrimeLevel(player, newBounty)
-            log("[GLOBAL] Used types.Player.setCrimeLevel")
+    local amount = tonumber(data.bountyAmount) or 0
+    if amount <= 0 then
+        log("[GLOBAL] Skip applying non-positive bounty: " .. tostring(amount))
+    else
+        local player = world.players[1]
+        if not player then
+            log("[GLOBAL] CRITICAL ERROR: world.players[1] is nil!")
         else
-            log("[GLOBAL] ERROR: No bounty setting function found!")
+            -- Robust API check and application
+            local typesPlayer = types.Player
+            if typesPlayer then
+                local currentBounty = 0
+                if typesPlayer.getBounty then
+                    currentBounty = typesPlayer.getBounty(player) or 0
+                elseif typesPlayer.getCrimeLevel then
+                    currentBounty = typesPlayer.getCrimeLevel(player) or 0
+                end
+                
+                local newBounty = currentBounty + amount
+                
+                if typesPlayer.setBounty then
+                    typesPlayer.setBounty(player, newBounty)
+                    log("[GLOBAL] ★ SUCCESS: Applied bounty (setBounty): " .. tostring(amount) .. ". New Total: " .. tostring(newBounty))
+                elseif typesPlayer.setCrimeLevel then
+                    typesPlayer.setCrimeLevel(player, newBounty)
+                    log("[GLOBAL] ★ SUCCESS: Applied bounty (setCrimeLevel): " .. tostring(amount) .. ". New Total: " .. tostring(newBounty))
+                else
+                    -- Fallback via mwscript run
+                    world.mwscript.run(player, 'SetPCCrimeLevel ' .. newBounty)
+                    log("[GLOBAL] ★ WARNING: Used mwscript fallback for bounty. New Total: " .. tostring(newBounty))
+                end
+            end
         end
-        log("[GLOBAL] Applied bounty:", data.bountyAmount, "to player - new total:", newBounty)
     end
 
-    -- Check if there's a valid NPC - if not, skip voice/door interactions only
-    if not data.npcId then
-        log("[GLOBAL] No NPC ID provided - skipping voice/investigation")
+    -- Check if there's a valid NPC - if not, skip voice/door reactions only
+    if not data or not data.npcId then
+        log("[GLOBAL] No NPC ID for voice/investigation reaction - bounty already applied")
         return
     end
 
@@ -2371,8 +2162,6 @@ local function onSetPlayerBounty(data)
         local npc = findNPC(data.npcId)
         if npc and npc:isValid() then playNpcVoiceResponse(npc,data.npcRace,data.npcGender) end
     end
-
-    log("[GLOBAL] Applied bounty:", data.bountyAmount, "to player - new total:", newBounty)
 
     -- Trigger door investigation if door position and NPC ID are provided
     local doorPosition = nil
@@ -3004,8 +2793,8 @@ local function onNPCUnconscious(data)
     log("[PULSE] DEBUG: findNPC returned", npc, "for npcId", npcId)
     
     if npc and npc:isValid() and isNPCUnconscious(npc) then
-        log("[PULSE] ★★★ Started detection pulse for NPC", npcId, "- emitting 800-unit pulse every 1 second")
-        emitDetectionPulse(npc, npcId)
+        log("[PULSE] NPC unconscious event received. Global pulse DISABLED (delegating to local script for LoS checks).")
+        -- emitDetectionPulse(npc, npcId) -- DISABLED
     else
         log("[PULSE] ERROR: NPC", npcId, "not found or not unconscious. npc:", npc, "valid:", npc and npc:isValid(), "unconscious:", npc and isNPCUnconscious(npc))
     end
@@ -3265,20 +3054,6 @@ return {
                 end
             end
         end,
-        AntiTheft_BodyDiscoveryConfirmed = function(data)
-            if not data or not data.witnessId or not data.bodyId then return end
-            
-            local witness = findNPC(data.witnessId)
-            local body = findNPC(data.bodyId)
-            
-            if witness and witness:isValid() and body and body:isValid() then
-                log("[PULSE] Discovery confirmed via player LoS check for witness", data.witnessId)
-                -- Check if this NPC already discovered this body (prevent race conditions)
-                if not (bodyDiscoveries[data.witnessId] and bodyDiscoveries[data.witnessId][data.bodyId]) then
-                    handleBodyDiscovery(witness, body, data.bodyId)
-                end
-            end
-        end,
         AntiTheft_CancelSearchTimer = onCancelSearchTimer,
         AntiTheft_CancelReturnHome = onCancelReturnHome,
         AntiTheft_UpdateDoorLockState = function(data)
@@ -3290,34 +3065,7 @@ return {
         AntiTheft_NPCUnconscious = onNPCUnconscious,
         AntiTheft_NPCConscious = onNPCConscious,
         AntiTheft_StopWakeUpWander = onStopWakeUpWander,
-        AntiTheft_PlayCivilianUnlockSound = onPlayCivilianUnlockSound,
-        AntiTheft_HandleCivilianReaction = function(data)
-            if data and data.npcId then
-                local npc = findNPC(data.npcId)
-                local player = world.players[1]
-                if npc and player then
-                    handleCivilianReaction(npc, player)
-                end
-            end
-        end,
-        AntiTheft_AlarmOthers = function(data)
-            if data and data.npcId then
-                local witness = findNPC(data.npcId)
-                local player = world.players[1]
-                if witness and player then
-                    triggerAlarmChain(witness, player)
-                end
-            end
-        end,
-        AntiTheft_BodyDiscoveryRelay = function(data)
-            if data and data.witnessId and data.bodyId then
-                local witness = findNPC(data.witnessId)
-                local body = findNPC(data.bodyId)
-                if witness and body then
-                    handleBodyDiscovery(witness, body, data.bodyId)
-                end
-            end
-        end,
+        AntiTheft_PlayCivilianUnlockSound = onPlayCivilianUnlockSound, -- NEW handler
         S3CombatTargetAdded = function(data)
             if data and data.id then
                 npcsInCombatWithPlayer[data.id] = true
@@ -3682,6 +3430,7 @@ return {
 
         -- Relay Sleep Bounty Event (Bridge for Blackjack Sleep)
         AntiTheft_Relay_SleepBounty = function(data)
+            log("[GLOBAL] AntiTheft_Relay_SleepBounty received")
             if not data then return end
             -- Apply bounty directly (custom amount) or relay to global
             local amount = 0
@@ -3694,24 +3443,17 @@ return {
                 npcId = data.npcId
             end
             
-            -- If amount is 99, use legacy path
-            if amount == 99 then
-                 core.sendGlobalEvent("detdGlobalCheckSleep", amount)
-            else
-                 -- Custom bounty application
-                local player = world.players[1]
-                if player then
-                    local currentBounty = 0
-                    if types.Player.getCrimeLevel then
-                        currentBounty = types.Player.getCrimeLevel(player)
-                    end
-                    local newBounty = currentBounty + amount
-                    if types.Player.setCrimeLevel then
-                        types.Player.setCrimeLevel(player, newBounty)
-                        log("[GLOBAL BOUNTY] Applied custom sleep bounty:", amount, "Total:", newBounty)
-                    end
-                end
+            -- If amount is 99 or greater, use legacy path to trigger alarms in mwscript mods
+            if amount >= 99 then
+                 log("[GLOBAL] Relaying bounty to mwscript integration (amount: " .. amount .. ")")
+                 onSleepCheck(amount)
             end
+
+            -- Apply bounty via Lua (Robust Path)
+            onSetPlayerBounty({
+                bountyAmount = amount,
+                npcId = npcId
+            })
         end,
 
         -- Mapped Event Handlers
@@ -3790,13 +3532,9 @@ return {
                 log("[GLOBAL KEYLOCK] Success! Door locked to level", lockLevel, "(Security:", securitySkill, ")")
                 
                 -- Play 3D success sound at door position
-                local successSounds = {
-                    "sound/lock/lock1.mp3",
-                    "sound/lock/lock2.mp3",
-                    "sound/lock/lock3.mp3"
-                }
-                local soundFile = successSounds[math.random(#successSounds)]
-                core.sound.playSoundFile3d(soundFile, door, {volume = 20.0, pitch = 0.9 + math.random() * 0.2, loop = false})
+                local soundIdx = math.random(1, 3)
+                local soundFile = string.format("lock/lock%d.mp3", soundIdx)
+                 core.sound.playSoundFile3d(soundFile, door, {volume = 20.0, pitch = 0.9 + math.random() * 0.2, loop = false})
                 log("[GLOBAL KEYLOCK] Playing 3D success sound:", soundFile, "at door")
             else
                 -- Play 3D failure sound at door position
@@ -3863,12 +3601,32 @@ return {
 
         AntiTheft_FinalizeReturn = function(data)
             if not data or not data.npcId or not data.homePosition or not data.homeRotation then return end
-            finalizeNPCReturn(data.npcId, data.homePosition, data.homeRotation)
+            
+            -- Replaced hard teleport with smooth rotation
+            local npc = findNPC(data.npcId)
+            if npc and npc:isValid() then
+                log("[GLOBAL] AntiTheft_FinalizeReturn called for NPC", data.npcId, "- starting smooth rotation (no teleport)")
+                npc:sendEvent('RemoveAIPackages')
+                
+                -- Start smooth rotation from CURRENT position (no snap)
+                startGlobalRotation(npc, data.homeRotation, 0.85, data.homePosition, data.homeRotation)
+                
+                -- Ensure search state is cleared immediately as well
+                local player = world.players[1]
+                if player then
+                    player:sendEvent('AntiTheft_ClearSearchState', { npcId = data.npcId })
+                end
+            end
         end,
 
         AntiTheft_StartReturnHome = onStartReturnHome,
 
         AntiTheft_LowerCellDisposition = onLowerCellDisposition,
+
+        -- Added handlers for Voice and Body Discovery (Relay from Blackjack script)
+        AntiTheft_PlayDetectionVoice = onPlayNPCVoice,
+        AntiTheft_BodyDiscovered = onBodyDiscoveryRelay, -- Alias for consistency
+        AntiTheft_BodyDiscoveryRelay = onBodyDiscoveryRelay,
     },
     engineHandlers = {
         onUpdate = function(dt)
@@ -3876,8 +3634,8 @@ return {
             if not lastBodyCheckTime then lastBodyCheckTime = 0 end
             if not BODY_CHECK_INTERVAL then BODY_CHECK_INTERVAL = 0.5 end
 
-            processPendingReturns(dt)
             updateGlobalRotations(dt)
+            processPendingReturns(dt)
             
             -- [PULSE TEST] log removed
             
@@ -4205,7 +3963,11 @@ return {
                 local npc = findNPC(npcId)
                 if npc and npc:isValid() then
                     log("Processing pending teleport for NPC", npcId)
-                    finalizeNPCReturn(npcId, teleportData.homePosition, teleportData.homeRotation)
+                    -- First teleport to exact position to ensure correct starting point
+                    npc:teleport(npc.cell.name, teleportData.homePosition, { onGround = true })
+                    -- Start smooth rotation
+                    startGlobalRotation(npc, teleportData.homeRotation, 0.85, teleportData.homePosition, teleportData.homeRotation)
+                    
                     pendingTeleports[npcId] = nil
                 end
             end
