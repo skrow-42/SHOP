@@ -706,212 +706,16 @@ local function initializeDoorStates()
     log("[DOOR STATE] === INITIALIZED", doorCount, "total doors,", unlockedDoors, "unlocked doors being tracked ===")
 end
 -- Check for door state changes and apply bounty if conditions met
-local function checkDoorStateChanges()
+local function checkDoorStateChanges(targetDoor)
     if not settings.general:get('enableDoorMechanics') then return end
 
-    doorLog("=== CHECKING DOOR STATE CHANGES ===")
-
-    -- Debug: Check if we're in the right cell type
-    local isInterior = self.cell and not self.cell.isExterior
-    log("[DOOR STATE] Cell check - cell exists:", self.cell ~= nil, "- is interior:", isInterior, "- cell name:", self.cell and self.cell.name or "nil")
-
-    -- Debug: Count all objects and actors
-    local totalObjects = 0
-    local doorObjects = 0
-    local totalActors = 0
-    local doorActors = 0
-    local npcActors = 0
-
-    -- Count objects (doors are objects)
-    if nearby.objects then
-        for _, obj in ipairs(nearby.objects) do
-            totalObjects = totalObjects + 1
-            if obj.type == types.Door then
-                doorObjects = doorObjects + 1
-            end
-        end
+    local doorsToCheck = {}
+    if targetDoor then
+        table.insert(doorsToCheck, targetDoor)
     else
-        log("[DOOR STATE] WARNING: nearby.objects is nil!")
-        return -- Exit early if objects table is nil
-    end
-
-    -- Count actors (doors might be actors, NPCs are actors)
-    for _, actor in ipairs(nearby.actors) do
-        totalActors = totalActors + 1
-        if actor.type == types.Door then
-            doorActors = doorActors + 1
-        elseif actor.type == types.NPC then
-            npcActors = npcActors + 1
-        end
-    end
-
-    log("[DOOR STATE] Object counts - total:", totalObjects, "- doors:", doorObjects)
-    log("[DOOR STATE] Actor counts - total:", totalActors, "- doors:", doorActors, "- NPCs:", npcActors)
-
-    local currentTime = core.getRealTime()
-    local doorsLocked = 0
-    local totalDoors = 0
-
-    -- Check doors in nearby.objects first (doors are objects)
-    for _, obj in ipairs(nearby.objects) do
-        -- Check if this is a door using multiple methods
-        local isDoor = false
-        local doorRecord = nil
-        local doorName = "unknown"
-        local doorRecordId = "unknown"
-
-        if obj.type == types.Door then
-            isDoor = true
-            doorRecord = types.Door.record(obj)
-            if doorRecord then
-                doorName = doorRecord.name or "unnamed"
-                doorRecordId = doorRecord.id or "no-id"
-            end
-        end
-
-        if isDoor then
-            totalDoors = totalDoors + 1
-            local doorId = obj.id
-            local isLocked = types.Lockable.isLocked(obj)
-            local lockLevel = types.Lockable.getLockLevel(obj)
-            local doorState = types.Door.getDoorState(obj)
-
-            log("[DOOR STATE] Found door in objects", doorId, "- name:", doorName, "- record id:", doorRecordId, "- locked =", isLocked, "- lock level =", lockLevel, "- state =", doorState)
-
-            local doorData = doorStates[doorId]
-
-            if doorData then
-                -- Check if door was unlocked and is now locked
-                if not doorData.wasLocked and isLocked then
-                    doorsLocked = doorsLocked + 1
-                    doorLog("Door", doorId, "(", doorName, ") was unlocked, now locked - LOCK DETECTED!")
-
-                    -- Sync with global script - let global script handle unlock sequences and bounty
-                    core.sendGlobalEvent('AntiTheft_UpdateDoorLockState', {
-                        doorId = doorId,
-                        lockLevel = lockLevel
-                    })
-                    doorLog("Sent lock state update to global script - global script will handle unlock sequence and bounty")
-                elseif doorData.wasLocked and not isLocked then
-                    log("[DOOR STATE] Door", doorId, "(", doorName, ") was locked, now unlocked - UNLOCK DETECTED")
-                    -- Trigger ForceTravelToPlayer logic (which handles Guard vs Civilian split now)
-                    if state.guard and state.guard:isValid() and state.following then
-                        onForceTravelToPlayer({
-                            npcId = state.guard.id,
-                            playerPosition = self.position
-                        })
-                    end
-
-                    -- Sync with global script
-                    core.sendGlobalEvent('AntiTheft_UpdateDoorLockState', {
-                        doorId = doorId,
-                        lockLevel = 0
-                    })
-                else
-                    doorLog("Door", doorId, "(", doorName, ") state unchanged - locked =", isLocked)
-                end
-
-                -- Update door state
-                doorStates[doorId] = {
-                    wasLocked = isLocked,
-                    lastCheckTime = currentTime
-                }
-            else
-                -- New door discovered after cell load, initialize it
-                doorLog("New door detected, initializing:", doorId, "(", doorName, ")")
-                doorStates[doorId] = {
-                    wasLocked = isLocked,  -- Initialize with current state to prevent false triggering
-                    lastCheckTime = currentTime
-                }
-                
-                if isLocked then
-                    doorLog("New door is already locked - will not trigger unlock (not player-locked)")
-                else
-                    doorLog("New door is unlocked - tracking for future lock changes")
-                end
-
-                -- Do NOT sync with global script on initialization
-                -- Only sync when actual state changes are detected
-            end
-        end
-    end
-
-    -- Also check doors in nearby.actors (in case they are there too)
-    for _, actor in ipairs(nearby.actors) do
-        -- Check if this is a door using multiple methods
-        local isDoor = false
-        local doorRecord = nil
-        local doorName = "unknown"
-        local doorRecordId = "unknown"
-
-        if actor.type == types.Door then
-            isDoor = true
-            doorRecord = types.Door.record(actor)
-            if doorRecord then
-                doorName = doorRecord.name or "unnamed"
-                doorRecordId = doorRecord.id or "no-id"
-            end
-        end
-
-        if isDoor then
-            totalDoors = totalDoors + 1
-            local doorId = actor.id
-            local isLocked = types.Lockable.isLocked(actor)
-            local lockLevel = types.Lockable.getLockLevel(actor)
-            local doorState = types.Door.getDoorState(actor)
-
-            doorLog("Found door in actors", doorId, "- name:", doorName, "- record id:", doorRecordId, "- locked =", isLocked, "- lock level =", lockLevel, "- state =", doorState)
-
-            local doorData = doorStates[doorId]
-
-            if doorData then
-                -- Check if door was unlocked and is now locked
-                if not doorData.wasLocked and isLocked then
-                    doorsLocked = doorsLocked + 1
-                    log("[DOOR STATE] Door", doorId, "(", doorName, ") was unlocked, now locked - LOCK DETECTED!")
-
-                    -- Sync with global script - let global script handle unlock sequences and bounty
-                    core.sendGlobalEvent('AntiTheft_UpdateDoorLockState', {
-                        doorId = doorId,
-                        lockLevel = lockLevel
-                    })
-                    doorLog("Sent lock state update to global script - global script will handle unlock sequence")
-                elseif doorData.wasLocked and not isLocked then
-                    doorLog("Door", doorId, "(", doorName, ") was locked, now unlocked - UNLOCK DETECTED")
-                    -- Play unlock sound for the following NPC guard if applicable
-                     if state.guard and state.guard:isValid() and state.following then
-                       playNpcUnlockSound(state.guard)
-                    end
-
-                    -- Sync with global script
-                    core.sendGlobalEvent('AntiTheft_UpdateDoorLockState', {
-                        doorId = doorId,
-                        lockLevel = 0
-                    })
-                else
-                    doorLog("Door", doorId, "(", doorName, ") state unchanged - locked =", isLocked)
-                end
-
-                -- Update door state
-                doorStates[doorId] = {
-                    wasLocked = isLocked,
-                    lastCheckTime = currentTime
-                }
-            else
-                -- New door discovered after cell load, initialize it
-                doorLog("New door detected, initializing:", doorId, "(", doorName, ")")
-                doorStates[doorId] = {
-                    wasLocked = isLocked,  -- Initialize with current state to prevent false triggering
-                    lastCheckTime = currentTime
-                }
-                
-                if isLocked then
-                    doorLog("New door is already locked - will not trigger unlock (not player-locked)")
-                else
-                    doorLog("New door is unlocked - tracking for future lock changes")
-                end
-
-                -- Do NOT sync with global script on initialization
+        -- Fallback: Scan all nearby objects and actors (legacy behavior)
+        if nearby.objects then
+            for _, obj in ipairs(nearby.objects) do
                 -- Only sync when actual state changes are detected
             end
         end
@@ -1037,8 +841,11 @@ local function checkLockSpellSuccess()
 
     -- If doors were successfully locked, check conditions and apply bounty
     if lockedDoors > 0 then
-        -- No immediate bounty - let global script handle it after unlock + LoS check
-        log("[LOCK SPELL] Lock spell detected - global script will handle bounty after unlock sequence")
+        -- Send event to global script to trigger NPC response and bounty check
+        core.sendGlobalEvent('AntiTheft_CheckDoorLocks', {
+            delay = 0.1  -- Check after 0.1 seconds
+        })
+        log("[LOCK SPELL] Lock spell successful - triggered global door lock check")
     else
         log("[LOCK SPELL] No doors were successfully locked - no bounty applied")
     end
@@ -1397,28 +1204,112 @@ local function onUpdate(dt)
 
     -- UI FEEDBACK LOGIC (Throttled)
     local currentTime = core.getRealTime()
+
+    -- Bed Sleeping Check (Throttled: every 2 seconds)
+    if not state.lastBedCheck or (currentTime - state.lastBedCheck > 2.0) then
+        state.lastBedCheck = currentTime
+        if self.cell and not self.cell.isExterior and settings.general:get('enableBedDetection') then
+            local pPos = self.position
+            local beds = state.cellBeds[self.cell.name]
+            
+            if beds then
+                for _, bedPos in ipairs(beds) do
+                     local bedV3 = util.vector3(bedPos.x, bedPos.y, bedPos.z)
+                     local dist = (bedV3 - pPos):length()
+                     if dist < 200 then
+                         -- Player is in/near bed within 200 units
+                         -- REVERT: Only trigger if actually sleeping (User Request)
+                         -- Proximity Check Enabled for Trespass Timer
+                         -- Proceeding to LoS check...
+
+                         
+                         -- Collision Check (Raycast) to prevent detection through walls
+                         -- Cast from eye position to bed position + slight offset (z+20) to avoid floor issues
+                         local eyePos = camera.getPosition()
+                         local targetPos = bedV3 + util.vector3(0, 0, 20)
+                         local ray = nearby.castRay(eyePos, targetPos, {
+                             collisionType = nearby.COLLISION_TYPE.World, 
+                             ignore = self
+                         })
+                         
+                         local blocked = false
+                         
+                         if ray.hit then
+                             -- Hit something (likely a wall) before reaching bed
+                             local hitDist = (ray.hitPos - eyePos):length()
+                             local targetDist = (targetPos - eyePos):length()
+                             
+                             if hitDist < (targetDist - 10) then
+                                 -- Hit a wall significantly closer than the bed
+                                 blocked = true
+                             end
+                         end
+                         
+                         if not blocked then
+                         
+                         -- Find nearby NPC to react
+                         local reactor = nil
+                         local reactorDist = 1000 -- Max reaction range
+                         
+                         -- If we have a following guard, they take priority
+                         if state.guard and state.guard:isValid() and state.guard.cell.name == self.cell.name then
+                             reactor = state.guard
+                         else
+                             -- Check nearby actors
+                             if nearby.actors then
+                                 for _, actor in ipairs(nearby.actors) do
+                                     if actor.type == types.NPC and actor ~= self and not types.Actor.isDead(actor) then
+                                         local d = (actor.position - pPos):length()
+                                         if d < reactorDist then
+                                             reactor = actor
+                                             reactorDist = d
+                                         end
+                                     end
+                                 end
+                             end
+                         end
+                         
+                         if reactor then
+                             -- Send event
+                             core.sendGlobalEvent('AntiTheft_PlayerSleepingInBed', {
+                                 npcId = reactor.id,
+                                 playerPos = self.position,
+                                 cellName = self.cell.name
+                             })
+                             state.lastBedCheck = currentTime + 5.0 -- Longer cooldown after detection
+                             break -- Found a bed, no need to check others
+                         end
+                     end
+                     end
+                end
+            end
+            end
+            end
+
+    -- STUN UI CHECK
+
+    -- STUN UI CHECK
     if currentTime - lastStunUpdate >= STUN_UPDATE_INTERVAL then
          lastStunUpdate = currentTime
          
          -- Cooldown Skip: If recently showed message, skip all checks
-         if currentTime - lastStunMessageTime < MESSAGE_COOLDOWN then return end
+         if currentTime - (state.lastStunMessageTime or 0) < 0.2 then return end
          
-            -- Check Conditions Nested (No Returns)
-            local validStance = types.Actor.getStance(self) == types.Actor.STANCE.Weapon
-            local validWeapon = false
-            local weaponRecord = nil
+         -- Check Conditions Nested (No Returns)
+         local validStance = types.Actor.getStance(self) == types.Actor.STANCE.Weapon
+         local validWeapon = false
+         local weaponRecord = nil
 
-            if validStance then
-                local equipment = types.Actor.getEquipment(self)
-                local weapon = equipment[types.Actor.EQUIPMENT_SLOT.CarriedRight] 
-                if weapon then
-                     weaponRecord = types.Weapon.record(weapon)
-                     if weaponRecord and weaponRecord.id and weaponRecord.id:lower():find("blackjack") then
-                        validWeapon = true
-                     end
-                end
-            end
-
+         if validStance then
+             local equipment = types.Actor.getEquipment(self)
+             local weapon = equipment[types.Actor.EQUIPMENT_SLOT.CarriedRight] 
+             if weapon then
+                  weaponRecord = types.Weapon.record(weapon)
+                  if weaponRecord and weaponRecord.id and weaponRecord.id:lower():find("blackjack") then
+                     validWeapon = true
+                  end
+             end
+         end
             if validWeapon then
                 -- Raycast Attempt (Using Player Rotation as fallback for reliability)
                 local camPos = camera.getPosition()
@@ -1880,13 +1771,13 @@ local function onUpdate(dt)
         state.factionsLogged = true
     end
     
-    -- Retry bed scan if it failed earlier due to nearby.objects being nil
+    -- Retry bed scan if it failed earlier or data is missing
     if state.needsBedScan and state.bedScanCell and not self.cell.isExterior then
-        local beds = scanBedsInCell()
-        if beds and #beds > 0 then
-            state.cellBeds[state.bedScanCell] = beds
-            state.needsBedScan = false
-            log("[BED SCAN] Retry successful - scanned beds in", state.bedScanCell)
+        -- Only send request once every few seconds to prevent spam if global script is slow
+        if not state.lastBedScanRequest or (core.getRealTime() - state.lastBedScanRequest > 5) then
+            core.sendGlobalEvent('AntiTheft_ScanBedsInPlayerCell')
+            state.lastBedScanRequest = core.getRealTime()
+            log("[BED SCAN] Sent global request to scan beds in", state.bedScanCell)
         end
     end
 
@@ -2023,8 +1914,14 @@ local function onUpdate(dt)
         if isCellAllowed() then
             storage.saveAllNPCsInCell(self.cell, nearby, types, util)
             crossCell.cleanupStaleReturns(state, nearby, types, storage)
-
-
+            
+            -- Request bed scan from global script
+            if not self.cell.isExterior then
+                core.sendGlobalEvent('AntiTheft_ScanBedsInPlayerCell')
+                state.needsBedScan = true -- Track that we are waiting for data
+                state.bedScanCell = self.cell.name
+                log("[CELL INIT] Requested bed scan for", self.cell.name)
+            end
         end
     end
 
@@ -2930,8 +2827,7 @@ local function onUpdate(dt)
                     end
                 end
             end
-        end
-
+            end
         
     end
 end
@@ -2963,9 +2859,30 @@ local function onInputAction(action)
         
         -- CRITICAL FIX: Run door check in async callback to avoid blocking input
         -- Direct synchronous check was freezing camera
+        -- CRITICAL FIX: Run door check in async callback to avoid blocking input
+        -- Direct synchronous check was freezing camera
         async:newUnsavableSimulationTimer(0.1, function()
-            if self.cell and not self.cell.isExterior and nearby.objects then
-                checkDoorStateChanges()
+            if self.cell and not self.cell.isExterior then
+                -- Raycast to find target door
+                local camPos = camera.getPosition()
+                local rot = self.rotation 
+                local forward = rot:apply(util.vector3(0, 1, 0))
+                local endPos = camPos + (forward * 200) -- 200 units reach
+                
+                local ray = nearby.castRay(camPos, endPos, {
+                    collisionType = nearby.COLLISION_TYPE.World + nearby.COLLISION_TYPE.Door, 
+                    ignore = self
+                })
+                
+                local targetDoor = nil
+                if ray.hit and ray.hitObject and (ray.hitObject.type == types.Door) then
+                    targetDoor = ray.hitObject
+                    log("[DOOR CHECK] Raycast hit door:", targetDoor.id)
+                end
+                
+                if targetDoor then
+                    checkDoorStateChanges(targetDoor)
+                end
             end
         end)
     end
@@ -3106,6 +3023,13 @@ return {
             else
                 log("[PLAYER RELAY] Error: Invalid bounty amount received")
             end
+        end,
+        
+        AntiTheft_UpdateBedCache = function(data)
+            if not data or not data.cellName or not data.beds then return end
+            log("[BED CACHE UPDATED] Received", #data.beds, "beds for cell", data.cellName)
+            state.cellBeds[data.cellName] = data.beds
+            state.needsBedScan = false
         end,
         AntiTheft_NotifyWitnessAttack = function(data)
             if data and data.npcId then

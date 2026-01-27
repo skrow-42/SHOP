@@ -308,29 +308,7 @@ local function onCheckDoorLocks(eventData)
     end
 end
 
--- Main update loop - check door states periodically
-local lastCheckTime = 0
-local CHECK_INTERVAL = 1.0  -- Check every second
-
-local function onUpdate(dt)
-    local currentTime = core.getRealTime()
-
-    -- Initialize door states if not done
-    if not next(doorStates) then
-        initializeDoorStates()
-    end
-
-    -- Check door states periodically
-    if currentTime - lastCheckTime >= CHECK_INTERVAL then
-        checkDoorStateChanges()
-        lastCheckTime = currentTime
-    end
-end
-
 return {
-    engineHandlers = {
-        onUpdate = onUpdate
-    },
     eventHandlers = {
         AntiTheft_RecordDoorStates = onRecordDoorStates,
         AntiTheft_CheckDoorLocks = onCheckDoorLocks

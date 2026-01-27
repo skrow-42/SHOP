@@ -70,10 +70,17 @@ if I.Settings and I.Settings.registerPage then
                 default     = false,
             },
             {
+                key = 'enableBedDetection',
+                renderer = 'checkbox',
+                name = 'Enable Bedroom Detection',
+                description = 'If enabled, NPCs will react to the player going into their quarters.',
+                default = true,
+            },
+            {
                 key         = 'enableDoorMechanics',
                 renderer    = 'checkbox',
                 name        = 'Enable Door Mechanics',
-                description = 'Enable NPC reaction to door locking.',
+                description = 'If enabled, NPCs will react to door state changes (locking/unlocking) and investigate.',
                 default     = true,
             },
             {
