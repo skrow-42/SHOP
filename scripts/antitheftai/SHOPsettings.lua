@@ -356,6 +356,37 @@ if I.Settings and I.Settings.registerPage then
             },
         },
     }
+
+    -- Bounties group
+    I.Settings.registerGroup{
+        key              = 'SettingsSHOPsetBounties',
+        l10n             = PAGE_KEY,
+        page             = PAGE_KEY,
+        name             = 'Bounties',
+        permanentStorage = false,
+        settings = {
+            {
+                key         = 'lockingDoorBounty',
+                renderer    = 'number',
+                name        = 'Locking Door Bounty',
+                description = 'Bounty added when player locks a door while being followed. Set 0 to disable.',
+                default     = 150,
+                min         = 0,
+                max         = 1000,
+                step        = 1,
+            },
+            {
+                key         = 'stunNPCBounty',
+                renderer    = 'number',
+                name        = 'Stun NPC Bounty',
+                description = 'Bounty added when knocking out an NPC (if spotted). Set 0 to disable.',
+                default     = 300,
+                min         = 0,
+                max         = 1000,
+                step        = 1,
+            },
+        },
+    }
 end
 
 -- 2) Return the correct storage section for the current context
@@ -373,4 +404,5 @@ return {
     timing  = section(GROUP_TIMING),
     distances = section(GROUP_DISTANCES),
     compatibility = section(GROUP_COMPAT),
+    bounties = section('SettingsSHOPsetBounties'),
 }

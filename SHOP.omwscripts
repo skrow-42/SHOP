@@ -1,4 +1,7 @@
 PLAYER: scripts/antitheftai/AntiTheft_Player.lua
 PLAYER: scripts/antitheftai/player_settings.lua
 GLOBAL: scripts/antitheftai/AntiTheft_Global.lua
+GLOBAL: scripts/antitheftai/loot_injector.lua
+GLOBAL: scripts/antitheftai/custom_contraband.lua
 NPC: scripts/antitheftai/npc_rotation.lua
+NPC: scripts/antitheftai/blackjack_sleep.lua

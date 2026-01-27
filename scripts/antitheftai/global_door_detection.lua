@@ -2,6 +2,7 @@
 -- This script monitors door lock level changes and applies bounty when conditions are met
 
 local config = require('scripts.antitheftai.modules.config')
+local settings = require('scripts.antitheftai.SHOPsettings') -- Import settings
 local async = require('openmw.async')
 local core = require('openmw.core')
 local nearby = require('openmw.nearby')

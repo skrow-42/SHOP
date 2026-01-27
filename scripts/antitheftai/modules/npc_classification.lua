@@ -419,7 +419,7 @@ function classification.isMerchant(npc, types)
     if className:find("merchant") or className:find("trader") or
        className:find("pawnbroker") or className:find("smith") or
        className:find("alchemist") or className:find("bookseller") or
-       className:find("clothier") or className:find("outfitter") then
+       className:find("clothier") or className:find("outfitter")  then
         return true
     end
 

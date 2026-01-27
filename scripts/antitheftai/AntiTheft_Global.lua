@@ -32,6 +32,7 @@ local world = require('openmw.world')
 local classification = require('scripts.antitheftai.modules.npc_classification')
 local companionDetection = require('scripts.antitheftai.modules.companion_detection')
 local bedVoices = require('scripts.antitheftai.modules.bed_voices')
+local config = require('scripts.antitheftai.modules.config')
 -- local cache, used by your log() helper
 local _enableGlobalDebug = settings:get('enableGlobalDebug') or false
 local _enableDebug       = settings:get('enableDebug')       or false
@@ -98,7 +99,9 @@ local async = require('openmw.async')
 local config        = require('scripts.antitheftai.modules.config')
 local pendingReturns  = {}
 local activeRotations = {}
-local wanderingNPCs = {}  -- Track NPCs currently wandering
+local wanderingNPCs = {}
+local activeWakeUpWanders = {} -- Tracks NPCs doing the wake-up wander, to allow cancellation
+local recentlyRotated = {}  -- Track NPCs currently wandering
 local pendingTeleports = {}  -- Track NPCs waiting to be teleported
 local teleportingNPCs = {}  -- Track NPCs currently being teleported home
 local teleportTimeouts = {}  -- Track NPCs with 5-minute timeout to return to default position
@@ -114,6 +117,7 @@ local followingNPCs = {}  -- Track NPCs currently following the player (npcId ->
 
 -- Local cache for NPC race/gender data (fetched once and reused)
 local npcRaceGenderCache = {}
+local npcHomePositions = {} -- npcId -> homePosition
 
 -- Combat door lock monitoring state variables (moved from player script)
 local monitorDoorLocksDuringCombat = false
@@ -142,6 +146,7 @@ end
 ----------------------------------------------------------------------
 
 -- Check if an activator is a bed
+-- Check if an activator is a bed
 local function isBed(object)
     if not object or object.type ~= types.Activator then
         return false
@@ -150,42 +155,73 @@ local function isBed(object)
     local recordId = object.recordId
     if not recordId then return false end
     
-    -- Exclude bedrolls
-    if recordId:lower():find("bedroll") then
-        return false
-    end
-    
-    -- Check if recordId contains "bed"
-    if not recordId:lower():find("bed") then
-        return false
-    end
-    
-    -- Get activator record and check name and mwscript
+    -- Get activator record
     local record = types.Activator.record(recordId)
-    if record then
-        -- Check record name for "bed"
-        if record.name and record.name:lower():find("bed") then
-            print("[BED CHECK] Record name contains 'bed':", record.name)
-            return true
-        end
-        
-        -- Check mwscript field
-        if record.mwscript then
-            local scrName = record.mwscript:lower()
-            if scrName == "bed_standard" or scrName == "chargenbed" then
-                print("[BED CHECK] MWScript matches:", record.mwscript)
-                return true
-            end
-        end
+    if not record then return false end
+    
+    -- Check NAME for EXACT match "Bed" (User request: strict equality)
+    -- Will NOT match "Common Bed", "Royal Bed", etc.
+    -- Only matches objects specifically named "Bed".
+    if record.name and record.name == "Bed" then
+        return true
     end
     
-    return false
+    
 end
 
+-- Find all beds in a cell and cache their positions
 -- Find all beds in a cell and cache their positions
 local function scanBedsInCell(cell)
     if not cell or cell.isExterior then
         return {}
+    end
+    
+    -- Check if cell is disabled via configuration
+    if classification.isCellDisabled(cell, config.DISABLED_CELL_NAMES) then
+        log("[BED SCAN GLOBAL] Cell", cell.name, "is disabled in config - skipping bed scan")
+        return {}
+    end
+
+    -- Build a 'nearby' context for classification checks using all actors in the cell
+    local allActors = cell:getAll(types.NPC)
+    local nearbyContext = { actors = allActors }
+
+    -- Check for "Slaves and Enemies" condition
+    if classification.shouldDisableCellForSlavesAndEnemies(nearbyContext, types) then
+        log("[BED SCAN GLOBAL] Cell", cell.name, "contains Slaves and Enemies - skipping bed scan")
+        return {}
+    end
+
+    -- Check for "Only Enemies" condition
+    if classification.shouldDisableCellForOnlyEnemies(nearbyContext, types) then
+        log("[BED SCAN GLOBAL] Cell", cell.name, "contains Only Enemies - skipping bed scan")
+        return {}
+    end
+
+    -- Check for "Publican" condition
+    if classification.shouldDisableCellForPublican(nearbyContext, types) then
+        log("[BED SCAN GLOBAL] Cell", cell.name, "contains a Publican - skipping bed scan")
+        return {}
+    end
+
+    -- Check for Guild Rank condition
+    local cellFaction = classification.detectCellFaction(nearbyContext, types)
+    if cellFaction then
+        local player = world.players[1]
+        if player and types.Player and types.Player.factions then
+            local playerFactions = types.Player.factions(player)
+            local rankThreshold = config.FACTION_IGNORE_RANK or 5
+            
+            for _, pf in ipairs(playerFactions) do
+                if pf.factionId == cellFaction then
+                    if pf.rank >= rankThreshold then
+                        log("[BED SCAN GLOBAL] Player rank", pf.rank, "in faction", cellFaction, ">= threshold", rankThreshold, "- skipping bed scan")
+                        return {}
+                    end
+                    break 
+                end
+            end
+        end
     end
     
     print("[GLOBAL BED DEBUG] Starting scan, cell name:", cell.name)
@@ -193,16 +229,16 @@ local function scanBedsInCell(cell)
     local bedCount = 0
     
     for _, object in pairs(cell:getAll(types.Activator)) do
-        print("[GLOBAL BED DEBUG] Checking activator:", object.recordId)
+        -- print("[GLOBAL BED DEBUG] Checking activator:", object.recordId)
         if isBed(object) then
             table.insert(bedPositions, object.position)
             bedCount = bedCount + 1
-            print("[GLOBAL BED DEBUG] Found bed:", object.recordId, "at position:", object.position)
+            -- print("[GLOBAL BED DEBUG] Found bed:", object.recordId, "at position:", object.position)
             log("[BED SCAN GLOBAL] Found bed:", object.recordId, "at position:", object.position)
         end
     end
     
-    print("[GLOBAL BED DEBUG] Scan complete. Found", bedCount, "beds")
+    -- print("[GLOBAL BED DEBUG] Scan complete. Found", bedCount, "beds")
     log("[BED SCAN GLOBAL] Found", bedCount, "beds in cell", cell.name or "unknown")
     return bedPositions
 end
@@ -216,6 +252,145 @@ local function rememberRaceGender(npcId,race,gender)
     if npcId and race and gender then
         npcRaceGenderCache[npcId] = {race=race,gender=gender}
     end
+end
+
+----------------------------------------------------------------------
+-- Unconscious Body Discovery System
+----------------------------------------------------------------------
+-- Detection pulse system - each unconscious NPC emits 800-unit pulse every 1 second
+local unconsciousPulseTimers = {}  -- npcId -> pulse timer
+local unconsciousNPCStates = {}    -- npcId -> {wasSpotted = bool}
+local bodyDiscoveries = {}         -- discovererNpcId -> {unconsciousNpcId -> true}
+
+-- Constants
+local PULSE_RANGE = 800
+local PULSE_INTERVAL = 1.0
+local DISCOVERY_BOUNTY_VALUE = 99  -- 200 gold bounty
+
+-- Helper function to check if NPC is unconscious
+local function isNPCUnconscious(npc)
+    if not (npc and npc:isValid()) then 
+        return false 
+    end
+    
+    -- Check if NPC has the sleep spell active
+    local SLEEP_SPELL_ID = 'detd_sleep_spell3'
+    local hasSpell = types.Actor.activeSpells(npc):isSpellActive(SLEEP_SPELL_ID)
+    
+    if hasSpell then
+        -- Also check stance - unconscious NPCs should be in knockdown/prone stance
+        local stance = types.Actor.getStance(npc)
+        local isUnconscious = (stance == 0)
+        
+        if isUnconscious then
+            print("[DEBUG isNPCUnconscious] NPC", npc.id, "IS unconscious - spell active, stance:", stance)
+        else
+            print("[DEBUG isNPCUnconscious] NPC", npc.id, "has spell but stance is", stance, "not unconscious")
+        end
+        
+        return isUnconscious
+    end
+    
+    return false
+end
+
+-- Pulse emission function - scans for nearby conscious NPCs and alerts them
+local function emitDetectionPulse(unconsciousNpc, unconsciousNpcId)
+    if not (unconsciousNpc and unconsciousNpc:isValid()) then
+        -- NPC woke up or is invalid - cancel pulse
+        if unconsciousPulseTimers[unconsciousNpcId] then
+            print("[PULSE] NPC", unconsciousNpcId, "woke up - cancelling detection pulse")
+            unconsciousPulseTimers[unconsciousNpcId] = nil
+            unconsciousNPCStates[unconsciousNpcId] = nil
+        end
+        return
+    end
+    
+    -- Check if still unconscious
+    if not isNPCUnconscious(unconsciousNpc) then
+        print("[PULSE] NPC", unconsciousNpcId, "woke up - cancelling pulse")
+        unconsciousPulseTimers[unconsciousNpcId] = nil
+        unconsciousNPCStates[unconsciousNpcId] = nil
+        return
+    end
+    
+    print("[PULSE] NPC", unconsciousNpcId, "emitting 800-unit detection pulse...")
+    
+    local unconsciousPos = unconsciousNpc.position
+    local player = world.players[1]
+    
+    -- Scan for conscious NPCs in the same cell
+    for _, consciousNpc in ipairs(world.activeActors) do
+        if consciousNpc.type == types.NPC and 
+           consciousNpc.id ~= unconsciousNpcId and 
+           consciousNpc.cell == unconsciousNpc.cell and
+           not isNPCUnconscious(consciousNpc) then
+            
+            local consciousId = consciousNpc.id
+            
+            -- Check if this NPC already discovered this body
+            if not (bodyDiscoveries[consciousId] and bodyDiscoveries[consciousId][unconsciousNpcId]) then
+                -- Calculate distance
+                local dist = (consciousNpc.position - unconsciousPos):length()
+                
+                if dist <= PULSE_RANGE then
+                    -- Check line of sight
+                    local rayResult = world.castRay(consciousNpc.position, unconsciousPos)
+                    
+                    -- If rayResult is nil or didn't hit anything, LoS is clear
+                    if not rayResult or not rayResult.hit then
+                        print("[PULSE] Conscious NPC", consciousId, "detected unconscious NPC", unconsciousNpcId, "at", math.floor(dist), "units (LoS clear)")
+                        
+                        -- Mark discovery
+                        if not bodyDiscoveries[consciousId] then
+                            bodyDiscoveries[consciousId] = {}
+                        end
+                        bodyDiscoveries[consciousId][unconsciousNpcId] = true
+                        
+                        -- Notify the unconscious NPC that they were discovered
+                        -- This prevents them from becoming a witness when they wake up
+                        unconsciousNpc:sendEvent('AntiTheft_BodyDiscovered', {
+                            npcId = unconsciousNpcId,
+                            discovererNpcId = consciousId
+                        })
+                        print("[PULSE] Notified unconscious NPC", unconsciousNpcId, "of discovery")
+                        
+                        -- Check if bounty was already applied during blackjack hit
+                        local npcState = unconsciousNPCStates[unconsciousNpcId]
+                        if npcState and not npcState.wasSpotted then
+                            -- Player was NOT spotted during hit - apply bounty now
+                            print("[PULSE] Applying 200 gold bounty for body discovery")
+                            core.sendGlobalEvent("detdGlobalCheckSleep", DISCOVERY_BOUNTY_VALUE)
+                            
+                            -- Mark bounty as applied to prevent duplicates
+                            npcState.wasSpotted = true
+                        else
+                            print("[PULSE] Bounty already applied or player was spotted during hit")
+                        end
+                        
+                        -- Send conscious NPC into combat with player
+                        if player then
+                            consciousNpc:sendEvent('StartAIPackage', {
+                                type = 'Combat',
+                                target = player
+                            })
+                            print("[PULSE] Conscious NPC", consciousId, "engaging in combat with player")
+                        end
+                        
+                        -- Only process one discovery per pulse
+                        break
+                    else
+                        print("[PULSE] NPC", consciousId, "at", math.floor(dist), "units but LoS blocked")
+                    end
+                end
+            end
+        end
+    end
+    
+    -- Schedule next pulse in 1 second
+    unconsciousPulseTimers[unconsciousNpcId] = async:newUnsavableSimulationTimer(PULSE_INTERVAL, function()
+        emitDetectionPulse(unconsciousNpc, unconsciousNpcId)
+    end)
 end
 
 ----------------------------------------------------------------------
@@ -1317,6 +1492,22 @@ local function playNpcVoiceResponse(npc, race, gender)
         return
     end
 
+    -- Update raceIdToName to include spaced variants if missing
+    if not raceIdToName["dark elf"] then raceIdToName["dark elf"] = "darkelf" end
+    if not raceIdToName["high elf"] then raceIdToName["high elf"] = "highelf" end
+    if not raceIdToName["wood elf"] then raceIdToName["wood elf"] = "woodelf" end
+
+    -- Normalize race if provided
+    if race then
+        race = race:lower()
+        -- clean up spaces/underscores just in case
+        race = race:gsub("_", " "):gsub("%s+", " "):gsub("^%s*(.-)%s*$", "%1")
+        
+        if raceIdToName[race] then
+            race = raceIdToName[race]
+        end
+    end
+
     --── FIX : first: check cached map
     if (not race or not gender) and npcRaceGenderCache then
         local m=npcRaceGenderCache[npc.id]; if m then race,gender=m.race,m.gender end
@@ -1751,58 +1942,49 @@ local function onSetPlayerBounty(data)
     end
     log("[GLOBAL] Bounty data received - Amount:", data.bountyAmount, "NPC:", data.npcId)
 
-    -- Check if there's a valid NPC - if not, skip bounty application
+    -- APPLY BOUNTY UNCONDITIONALLY FIRST
+    -- Get player from global context
+    local player = world.players[1]
+    if not player then
+        log("[GLOBAL] ERROR: Could not find player for bounty application")
+    else
+        -- Get current bounty
+        local currentBounty = 0
+        if types.Player.getBounty then
+            currentBounty = types.Player.getBounty(player) or 0
+        elseif types.Player.getCrimeLevel then
+            currentBounty = types.Player.getCrimeLevel(player) or 0
+        end
+        log("[GLOBAL] Current player bounty:", currentBounty)
+        
+        local newBounty = currentBounty + data.bountyAmount
+        log("[GLOBAL] Setting new bounty to:", newBounty)
+    
+        -- Set new bounty
+        if types.Player.setBounty then
+            types.Player.setBounty(player, newBounty)
+            log("[GLOBAL] Used types.Player.setBounty")
+        elseif types.Player.setCrimeLevel then
+            types.Player.setCrimeLevel(player, newBounty)
+            log("[GLOBAL] Used types.Player.setCrimeLevel")
+        else
+            log("[GLOBAL] ERROR: No bounty setting function found!")
+        end
+        log("[GLOBAL] Applied bounty:", data.bountyAmount, "to player - new total:", newBounty)
+    end
+
+    -- Check if there's a valid NPC - if not, skip voice/door interactions only
     if not data.npcId then
-        log("[GLOBAL] No NPC ID provided - skipping bounty application")
+        log("[GLOBAL] No NPC ID provided - skipping voice/investigation")
         return
     end
 
     local npc = findNPC(data.npcId)
     if not npc or not npc:isValid() then
-        log("[GLOBAL] NPC not found or invalid - skipping bounty application")
+        log("[GLOBAL] NPC not found or invalid - skipping voice/investigation")
         return
     end
-    log("[GLOBAL] NPC found and valid:", npc.id)
-
-    -- Get player from global context
-    local player = world.players[1]
-    if not player then
-        log("[GLOBAL] ERROR: Could not find player")
-        return
-    end
-
-    -- Get current bounty
-    local currentBounty = 0
-    if types.Player.getBounty then
-        currentBounty = types.Player.getBounty(player) or 0
-    elseif types.Player.getCrimeLevel then
-        currentBounty = types.Player.getCrimeLevel(player) or 0
-    end
-    log("[GLOBAL] Current player bounty:", currentBounty)
-    
-    local newBounty = currentBounty + data.bountyAmount
-    log("[GLOBAL] Setting new bounty to:", newBounty)
-
-    -- Set new bounty (only works in global scripts)
-    -- Try setBounty first as it is used in onApplyLockSpellBounty
-    if types.Player.setBounty then
-        types.Player.setBounty(player, newBounty)
-        log("[GLOBAL] Used types.Player.setBounty")
-    elseif types.Player.setCrimeLevel then
-        types.Player.setCrimeLevel(player, newBounty)
-        log("[GLOBAL] Used types.Player.setCrimeLevel")
-    else
-        log("[GLOBAL] ERROR: No bounty setting function found!")
-    end
-    
-    -- Verify if bounty was set
-    local verifiedBounty = 0
-    if types.Player.getBounty then
-        verifiedBounty = types.Player.getBounty(player)
-    elseif types.Player.getCrimeLevel then
-        verifiedBounty = types.Player.getCrimeLevel(player)
-    end
-    log("[GLOBAL] Verified bounty after setting:", verifiedBounty)
+    log("[GLOBAL] NPC found and valid for reaction:", npc.id)
 
     --── FIX : cache race+gender immediately
     rememberRaceGender(data.npcId,data.npcRace,data.npcGender)
@@ -2331,6 +2513,178 @@ local function onBedSecondVoice(data)
 end
 
 ----------------------------------------------------------------------
+-- Sleep Check Event Handler (for blackjack integration)
+----------------------------------------------------------------------
+local function onSleepCheck(data)
+    if not data then return end
+    
+    print("[SLEEP CHECK] ★★★ Received sleep check event with value:", data)
+    log("[SLEEP CHECK] Received sleep check event with value:", data)
+    
+    -- Set global mwscript variable for integration with other mod
+    -- This matches the structure from sleep_npc_script_global.lua
+    local success, err = pcall(function()
+        world.mwscript.getGlobalScript("detd_sleepcheck_global").variables.CheckSleep = data
+    end)
+    
+    if success then
+        log("[SLEEP CHECK] Successfully set global CheckSleep variable to:", data)
+    else
+        log("[SLEEP CHECK] ERROR setting global variable:", err)
+    end
+    
+    -- ADDED: Apply bounty directly for spotted blackjack hits
+    if data == 99 then
+        log("[SLEEP CHECK] Value is 99 - applying bounty for witnessed blackjack")
+        local player = world.players[1]
+        if player then
+            -- Apply 200 gold bounty for witnessed assault/knockout
+            local currentBounty = 0
+            if types.Player.getCrimeLevel then
+                currentBounty = types.Player.getCrimeLevel(player)
+            end
+            
+            local newBounty = currentBounty + 200
+            if types.Player.setCrimeLevel then
+                types.Player.setCrimeLevel(player, newBounty)
+                log("[SLEEP CHECK] Applied 200 gold bounty. Old:", currentBounty, "New:", newBounty)
+            else
+                log("[SLEEP CHECK] ERROR: setCrimeLevel not available")
+            end
+        else
+            log("[SLEEP CHECK] ERROR: Could not find player to apply bounty")
+        end
+    end
+end
+
+----------------------------------------------------------------------
+-- Event handlers for unconscious NPC pulse system
+----------------------------------------------------------------------
+local function onNPCUnconscious(data)
+    if not data or not data.npcId then return end
+    
+    local npcId = data.npcId
+    print("[PULSE] Received unconscious event for NPC", npcId, "wasSpotted:", data.wasSpotted or false)
+    
+    -- Store spotted status
+    unconsciousNPCStates[npcId] = {
+        wasSpotted = data.wasSpotted or false
+    }
+    
+    -- Don't start pulse if already running
+    if unconsciousPulseTimers[npcId] then
+        print("[PULSE] Pulse already running for NPC", npcId)
+        return
+    end
+    
+    -- Find NPC and start pulse
+    local npc = findNPC(npcId)
+    print("[PULSE] DEBUG: findNPC returned", npc, "for npcId", npcId)
+    
+    if npc and npc:isValid() and isNPCUnconscious(npc) then
+        print("[PULSE] ★★★ Started detection pulse for NPC", npcId, "- emitting 800-unit pulse every 1 second")
+        emitDetectionPulse(npc, npcId)
+    else
+        print("[PULSE] ERROR: NPC", npcId, "not found or not unconscious. npc:", npc, "valid:", npc and npc:isValid(), "unconscious:", npc and isNPCUnconscious(npc))
+    end
+end
+
+local function onNPCConscious(data)
+    if not data or not data.npcId then return end
+    
+    local npcId = data.npcId
+    print("[PULSE] Received conscious event for NPC", npcId, "- cancelling pulse")
+    
+    -- Cancel pulse timer
+    if unconsciousPulseTimers[npcId] then
+        unconsciousPulseTimers[npcId] = nil
+    end
+    
+    -- Clear state
+    unconsciousNPCStates[npcId] = nil
+    
+    -- Clear any discoveries of this body
+    for discovererNpc, bodies in pairs(bodyDiscoveries) do
+        bodies[npcId] = nil
+    end
+
+    -- ★★★ WAKE UP WANDER: Make NPC travel in a ring for 10 seconds ★★★
+    local npc = findNPC(npcId)
+    if npc and npc:isValid() then
+        local utils = require('scripts.antitheftai.modules.utils')
+        log("[WAKE UP] NPC", npcId, "woke up - starting 10s wander behavior with multiple points")
+        
+        -- Capture home position (where they woke up) to return to after wandering
+        local homePos = npc.position
+        -- Capture home rotation as Euler angles table (required by onStartReturnHome)
+        local z, y, x = npc.rotation:getAnglesZYX() -- getAnglesZYX returns Z, Y, X order
+        local homeRot = { x = x, y = y, z = z }
+        
+        local startTime = core.getRealTime()
+        local wanderDuration = 10
+        
+        -- Set active state
+        activeWakeUpWanders[npcId] = true
+        
+        local function wanderStep()
+            -- Re-acquire NPC to ensure they are still valid/loaded
+            local n = findNPC(npcId)
+            if not (n and n:isValid()) then 
+                activeWakeUpWanders[npcId] = nil
+                return 
+            end
+            
+            -- Check if wander was cancelled (e.g. by spotting player)
+            if not activeWakeUpWanders[npcId] then
+                log("[WAKE UP] Wander loop cancelled externally for NPC", npcId)
+                return
+            end
+            
+            -- Check if wander time has expired
+            if core.getRealTime() - startTime >= wanderDuration then
+                log("[WAKE UP] Wander time expired - sending NPC home/to original position")
+                activeWakeUpWanders[npcId] = nil -- Clear state
+                
+                -- Use onStartReturnHome to properly return and rotate
+                onStartReturnHome({
+                    npcId = npcId,
+                    homePosition = homePos,
+                    homeRotation = homeRot
+                })
+                return
+            end
+            
+            -- Pick new random point in 300u ring relative to original spot
+            -- Use homePos as center to ensure they stay in the general area
+            local randomDir = util.vector3(math.random()-0.5, math.random()-0.5, 0):normalize()
+            local fakePos = homePos + randomDir -- just to give direction to ring function
+            local targetPos = utils.ring(homePos, fakePos, 100, 300)
+            
+            log("[WAKE UP] Wander step - travelling to:", targetPos)
+            n:sendEvent('StartAIPackage', {
+                type = 'Travel',
+                destPosition = targetPos,
+                cancelOther = true -- Override previous travel to change direction immediately
+            })
+            
+            -- Schedule next step in 2.5 seconds (gives them time to walk a bit)
+            async:newUnsavableSimulationTimer(2.5, wanderStep)
+        end
+        
+        -- Start loop
+        wanderStep()
+    end
+end
+
+local function onStopWakeUpWander(data)
+    if not data or not data.npcId then return end
+    if activeWakeUpWanders[data.npcId] then
+        activeWakeUpWanders[data.npcId] = nil
+        log("[WAKE UP] Received stop request for NPC", data.npcId, "- cancelling wander loop")
+    end
+end
+
+----------------------------------------------------------------------
 return {
     eventHandlers = {
         SHOP_UpdateSetting = onUpdateSetting,
@@ -2359,6 +2713,9 @@ return {
                 log("[DOOR DETECTION] Received explicit lock state update for door", data.doorId, "to", data.lockLevel)
             end
         end,
+        AntiTheft_NPCUnconscious = onNPCUnconscious,
+        AntiTheft_NPCConscious = onNPCConscious,
+        AntiTheft_StopWakeUpWander = onStopWakeUpWander, -- NEW handler
         S3CombatTargetAdded = function(data)
             if data and data.id then
                 npcsInCombatWithPlayer[data.id] = true
@@ -2368,60 +2725,69 @@ return {
         S3CombatTargetRemoved = function(data)
             if data and data.id then
                 npcsInCombatWithPlayer[data.id] = nil
-                log("[COMBAT TRACKING] NPC", data.id, "left combat with player")
+                log("[COMBAT TRACKING] NPC", data.id, "removed from combat with player")
             end
         end,
-        AntiTheft_UnlockDoorDuringCombat = function(data)
-            if not data or not data.npcId then return end
+        
+        AntiTheft_AddBlackjack = function(data)
+        if not data or not data.npcId or not data.itemId then return end
+        local npc = findNPC(data.npcId)
+        if npc and npc:isValid() then
+            -- Check if item exists in inventory first (double check)
+            if types.Actor.inventory(npc):count(data.itemId) == 0 then
+                npc:sendEvent('AddItem', { itemId = data.itemId, count = 1 })
+                log("[BLACKJACK] Added", data.itemId, "to NPC", data.npcId)
+            end
+        end
+    end,
 
-            log("[UNLOCK DOOR DURING COMBAT] Received unlock request for NPC", data.npcId, "- sending NPC to approach door first")
-
-            local npc = findNPC(data.npcId)
-            if npc and npc:isValid() then
-                -- Check if door is still locked before proceeding
-                local player = world.players[1]
-                local doorStillLocked = false
-                if player and data.doorPosition then
-                    for _, door in ipairs(player.cell:getAll(types.Door)) do
-                        local dist = (door.position - data.doorPosition):length()
-                        if dist < 1.0 and types.Lockable.isLocked(door) then
-                            doorStillLocked = true
-                            break
+    AntiTheft_UnlockDoorDuringCombat = function(data)
+            if data and data.npcId and data.doorPosition then
+                local npc = findNPC(data.npcId)
+                if npc and npc:isValid() then
+                    log("[UNLOCK DOOR DURING COMBAT] Received request for NPC", npc.id)
+                    
+                    -- Check if door is still locked
+                    local doorStillLocked = false
+                    if npc.cell then
+                        for _, door in ipairs(npc.cell:getAll(types.Door)) do
+                            -- Check position with small tolerance
+                            if (door.position - data.doorPosition):length() < 5 then
+                                doorStillLocked = types.Lockable.isLocked(door)
+                                break
+                            end
                         end
                     end
-                end
-
-                if doorStillLocked then
-                    log("[UNLOCK DOOR DURING COMBAT] Door still locked - sending NPC to approach within 110 units")
-
-                    -- Send NPC to travel to door position (will stop when within 110 units in onUpdate)
-                    npc:sendEvent('RemoveAIPackages')
-                    npc:sendEvent('StartAIPackage', {
-                        type = 'Travel',
-                        destPosition = data.doorPosition,
-                        cancelOther = true
-                    })
-
-                    -- Add to combat door investigation tracking
-                    combatDoorInvestigation[data.npcId] = {
-                        doorPosition = data.doorPosition,
-                        playerPosition = data.playerPosition,
-                        startTime = core.getRealTime(),
-                        lastLog = core.getRealTime()
-                    }
                     
-                    -- Remove from regular door investigation if present (prevent duplicate processing)
-                    if doorInvestigation[data.npcId] then
-                        doorInvestigation[data.npcId] = nil
-                        log("[UNLOCK DOOR DURING COMBAT] Removed NPC", data.npcId, "from regular door investigation to prevent duplicate processing")
-                    end
+                    if doorStillLocked then
+                        log("[UNLOCK DOOR DURING COMBAT] Door still locked - sending NPC to approach")
 
-                    log("[UNLOCK DOOR DURING COMBAT] NPC", data.npcId, "sent to approach door - will start unlock sequence when within 110 units")
+                         -- Send NPC to travel to door position
+                        npc:sendEvent('RemoveAIPackages')
+                        npc:sendEvent('StartAIPackage', {
+                            type = 'Travel',
+                            destPosition = data.doorPosition,
+                            cancelOther = true
+                        })
+
+                        -- Add to combat door investigation tracking
+                        combatDoorInvestigation[data.npcId] = {
+                            doorPosition = data.doorPosition,
+                            playerPosition = data.playerPosition,
+                            startTime = core.getRealTime(),
+                            lastLog = core.getRealTime()
+                        }
+                        
+                        -- Remove from regular door investigation if present
+                        if doorInvestigation[data.npcId] then
+                            doorInvestigation[data.npcId] = nil
+                        end
+                    else
+                         log("[UNLOCK DOOR DURING COMBAT] Door no longer locked - skipping")
+                    end
                 else
-                    log("[UNLOCK DOOR DURING COMBAT] Door no longer locked - skipping unlock request")
+                    log("[UNLOCK DOOR DURING COMBAT] NPC not found or invalid")
                 end
-            else
-                log("[UNLOCK DOOR DURING COMBAT] NPC not found or invalid")
             end
         end,
         AntiTheft_RegisterFollowingNPC = function(data)
@@ -2435,6 +2801,12 @@ return {
                     if data.race and data.gender then
                         rememberRaceGender(data.npcId, data.race, data.gender)
                         log("[GLOBAL] Cached race/gender for NPC", data.npcId, ":", data.race, data.gender)
+                    end
+
+                    -- Cache home position if provided
+                    if data.homePosition then
+                        npcHomePositions[data.npcId] = data.homePosition
+                        log("[GLOBAL] Cached home position for NPC", data.npcId, ":", data.homePosition)
                     end
                     
                     -- Initialize bed voice state
@@ -2459,11 +2831,79 @@ return {
                 log("[GLOBAL] Unregistered following NPC", data.npcId)
             end
         end,
+        detdGlobalCheckSleep = onSleepCheck,
     },
     engineHandlers = {
         onUpdate = function(dt)
+            -- Init persistence variables if missing
+            if not lastBodyCheckTime then lastBodyCheckTime = 0 end
+            if not BODY_CHECK_INTERVAL then BODY_CHECK_INTERVAL = 0.5 end
+
             processPendingReturns(dt)
             updateGlobalRotations(dt)
+            
+            -- [PULSE TEST] print removed
+            
+            -- Poll for unconscious NPCs every second (DISABLED - Handled locally by blackjack_sleep.lua)
+            --[[
+            local currentTime = core.getRealTime()
+            local POLL_INTERVAL = 1.0
+            if not lastUnconsciousPollTime then lastUnconsciousPollTime = 0 end
+            
+            if currentTime - lastUnconsciousPollTime >= POLL_INTERVAL then
+                lastUnconsciousPollTime = currentTime
+                
+                local player = world.players[1]
+                if player and player.cell then
+                    -- print("[PULSE POLL] Scanning for unconscious NPCs in cell:", player.cell.name)
+                    local npcCount = 0
+                    local unconsciousCount = 0
+                    
+                    -- Scan for unconscious NPCs
+                    for _, actor in ipairs(world.activeActors) do
+                        if actor.type == types.NPC and actor.cell == player.cell then
+                            npcCount = npcCount + 1
+                            local isUnconscious = isNPCUnconscious(actor)
+                            
+                            if isUnconscious then
+                                unconsciousCount = unconsciousCount + 1
+                                local npcId = actor.id
+                                
+                                -- Check if we've already started pulse for this NPC
+                                if not unconsciousPulseTimers[npcId] then
+                                    print("[PULSE AUTO-DETECT] ★★★ Found unconscious NPC", npcId, "- starting pulse")
+                                    
+                                    -- Initialize state (assume not spotted since we can't check from here)
+                                    unconsciousNPCStates[npcId] = {
+                                        wasSpotted = false  -- Will be set to true if pulse discovers body
+                                    }
+                                    
+                                    -- Start pulse
+                                    emitDetectionPulse(actor, npcId)
+                                else
+                                    -- print("[PULSE POLL] NPC", npcId, "already has active pulse")
+                                end
+                            end
+                        elseif actor.type == types.NPC and unconsciousPulseTimers[actor.id] then
+                            -- NPC was unconscious but is now conscious - cancel pulse
+                            if not isNPCUnconscious(actor) then
+                                local npcId = actor.id
+                                print("[PULSE AUTO-DETECT] NPC", npcId, "woke up - cancelling pulse")
+                                unconsciousPulseTimers[npcId] = nil
+                                unconsciousNPCStates[npcId] = nil
+                                
+                                -- Clear discoveries
+                                for discovererNpc, bodies in pairs(bodyDiscoveries) do
+                                    bodies[npcId] = nil
+                                end
+                            end
+                        end
+                    end
+                    
+                    -- print("[PULSE POLL] Found", npcCount, "NPCs,", unconsciousCount, "unconscious")
+                end
+            end
+            ]]
 
             -- Check for cell change to reset disposition tracking AND door lock states
             local player = world.players[1]
@@ -2515,12 +2955,25 @@ return {
                                 local cachedBeds = cellBedCache[cellName]
                                 
                                 if cachedBeds and #cachedBeds > 0 then
-                                    -- Find nearest bed to optimize performance
+                                    -- Find nearest bed to optimize performance (Skip beds near home)
                                     local nearestDist = math.huge
+                                    local homePos = npcHomePositions[npcId]
+                                    
                                     for _, bedPos in ipairs(cachedBeds) do
-                                        local dist = (player.position - bedPos):length()
-                                        if dist < nearestDist then
-                                            nearestDist = dist
+                                        local skipBed = false
+                                        if homePos then
+                                            local distToHome = (bedPos - homePos):length()
+                                            if distToHome < 500 then
+                                                skipBed = true
+                                                -- log("[BED PROXIMITY GLOBAL] Skipping bed at", bedPos, "because it is within 500 units of home")
+                                            end
+                                        end
+
+                                        if not skipBed then
+                                            local dist = (player.position - bedPos):length()
+                                            if dist < nearestDist then
+                                                nearestDist = dist
+                                            end
                                         end
                                     end
                                     
@@ -2542,10 +2995,13 @@ return {
                                             -- Get NPC race/gender from cache
                                             local raceGender = npcRaceGenderCache[npcId]
                                             if raceGender then
-                                                local race = raceGender.race
+                                                local race = raceGender.race:lower():gsub(" ", "") -- Normalize race string
                                                 local gender = raceGender.gender
                                                 
                                                 log("[BED PROXIMITY GLOBAL] Playing first voice for NPC", npcId, "race:", race, "gender:", gender)
+                                                
+                                                -- Mark first fired immediately to prevent loop
+                                                state.firstFired = true
                                                 
                                                 -- Get voice responses
                                                 local responses = bedVoices[race] and bedVoices[race][gender]
@@ -2565,7 +3021,6 @@ return {
                                                         end
                                                         core.sound.say(voicePath, npc, voice.response)
                                                         
-                                                        state.firstFired = true
                                                         log("[BED PROXIMITY GLOBAL] First voice played:", voice.response)
                                                         
                                                         -- Schedule second voice (10-20 seconds delay)
@@ -2583,6 +3038,8 @@ return {
                                                         
                                                         log("[BED PROXIMITY GLOBAL] Second voice scheduled in", delay, "seconds")
                                                     end
+                                                else
+                                                     log("[BED PROXIMITY GLOBAL] No voices found for race:", race)
                                                 end
                                             else
                                                 log("[BED PROXIMITY GLOBAL] No race/gender cached for NPC", npcId)
@@ -2595,6 +3052,86 @@ return {
                     end
                 end
             end
+            
+            --[[ DISABLED: Redundant Global Polling (Handled locally by blackjack_sleep.lua)
+            -- Check for unconscious body discoveries (throttled to 0.5s intervals)
+            local currentTime = core.getRealTime()
+            if player and player.cell and (currentTime - lastBodyCheckTime >= BODY_CHECK_INTERVAL) then
+                lastBodyCheckTime = currentTime
+                
+                -- Scan for unconscious NPCs and update tracking
+                local currentUnconsciousNPCs = {}
+                for _, actor in ipairs(world.activeActors) do
+                    if actor.type == types.NPC and actor.cell == player.cell and isNPCUnconscious(actor) then
+                        currentUnconsciousNPCs[actor.id] = true
+                    end
+                end
+                
+                -- Update active unconscious NPCs tracking
+                activeUnconsciousNPCs = currentUnconsciousNPCs
+                
+                -- Count unconscious NPCs for logging
+                local unconsciousCount = 0
+                for _ in pairs(activeUnconsciousNPCs) do
+                    unconsciousCount = unconsciousCount + 1
+                end
+                
+                if unconsciousCount > 0 then
+                    -- print("[BODY DISCOVERY] Found", unconsciousCount, "unconscious NPC(s) in cell") -- SPAM
+                    -- log("[BODY DISCOVERY] Running detection check -", unconsciousCount, "unconscious NPCs")
+                    
+                    -- Collect unconscious NPCs for discovery checks
+                    local unconsciousNPCs = {}
+                    for _, actor in ipairs(world.activeActors) do
+                        if actor.type == types.NPC and actor.cell == player.cell and activeUnconsciousNPCs[actor.id] then
+                            table.insert(unconsciousNPCs, actor)
+                        end
+                    end
+                    
+                    -- If there are unconscious NPCs, check if conscious NPCs discover them
+                    if #unconsciousNPCs > 0 then
+                        for _, actor in ipairs(world.activeActors) do
+                            if actor.type == types.NPC and actor.cell == player.cell and not isNPCUnconscious(actor) then
+                                local actorId = actor.id
+                                
+                                -- Check if already approaching
+                                if bodyApproaching and bodyApproaching[actorId] then
+                                    local approach = bodyApproaching[actorId]
+                                    local unconscious = findNPC(approach.bodyId)
+                                    
+                                    if unconscious and unconscious:isValid() then
+                                        local dist = (actor.position - approach.bodyPos):length()
+                                        if dist <= APPROACH_DISTANCE then
+                                            handleBodyReaction(actor, unconscious)
+                                        end
+                                    else
+                                        bodyApproaching[actorId] = nil
+                                    end
+                                else
+                                    -- Check for new discoveries
+                                    for _, unconscious in ipairs(unconsciousNPCs) do
+                                        local unconsciousId = unconscious.id
+                                        
+                                        if not (bodyDiscoveries[actorId] and bodyDiscoveries[actorId][unconsciousId]) then
+                                            local dist = (actor.position - unconscious.position):length()
+                                            
+                                            if dist <= BODY_DISCOVERY_RANGE then
+                                                local hasLoS = world.castRay(actor.position, unconscious.position)
+                                                
+                                                if not hasLoS or not hasLoS.hit then
+                                                    handleBodyDiscovery(actor, unconscious)
+                                                    break
+                                                end
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            ]]
 
             -- Process pending teleports
             for npcId, teleportData in pairs(pendingTeleports) do

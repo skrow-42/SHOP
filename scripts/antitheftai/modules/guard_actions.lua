@@ -83,6 +83,12 @@ function actions.recruit(npc, state, detection, self)
 
     local classification = require('scripts.antitheftai.modules.npc_classification')
     local types = require('openmw.types')
+    
+    -- CRITICAL: Prevent recruiting NPCs under sleep spell effect (unconscious)
+    if types.Actor.activeSpells(npc):isSpellActive('detd_sleep_spell3') then
+        log("[RECRUIT] Cannot recruit NPC", npc.id, "- NPC is unconscious (sleep spell active)")
+        return
+    end
 
     log("[RECRUIT] Recruiting NPC", npc.id)
 
@@ -164,10 +170,16 @@ function actions.recruit(npc, state, detection, self)
         
         -- Register following NPC in global script with race/gender for bed detection
         local core = require('openmw.core')
+        local homePos = nil
+        if state.npcOriginalData[npc.id] and state.npcOriginalData[npc.id].pos then
+             homePos = state.npcOriginalData[npc.id].pos
+        end
+        
         core.sendGlobalEvent('AntiTheft_RegisterFollowingNPC', {
             npcId = npc.id,
             race = race,
-            gender = gender
+            gender = gender,
+            homePosition = homePos
         })
         log("[RECRUIT] Registered following NPC in global script with race/gender")
     end
@@ -303,8 +315,14 @@ function actions.followPlayer(state, self, config)
         state.forceLOSCheck = true
         
         -- Register as following NPC in global script
+        local homePos = nil
+        if state.home and state.home.pos then
+            homePos = state.home.pos
+        end
+        
         core.sendGlobalEvent('AntiTheft_RegisterFollowingNPC', {
-            npcId = state.guard.id
+            npcId = state.guard.id,
+            homePosition = homePos
         })
         log("[FOLLOW] Registered NPC", state.guard.id, "as following in global script")
     end

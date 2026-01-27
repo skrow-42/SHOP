@@ -50,6 +50,7 @@ local crossCell   = require('scripts.antitheftai.modules.cross_cell_returns')
 
 -- Track pending bounty LoS checks (continuous monitoring during door opening)
 local pendingBountyMonitoring = {}  -- doorId -> {npcId, bountyAmount, startTime, doorPosition}
+local pendingWitnessAttacks = {}    -- npcId -> boolean (true if we expect this NPC to attack player shortly)
 
 ----------------------------------------------------------------------
 -- Debug logging with live-toggle support
@@ -120,6 +121,7 @@ local util   = safeRequire('openmw.util')
 local core   = safeRequire('openmw.core')
 local I      = safeRequire('openmw.interfaces')
 local input  = safeRequire('openmw.input')
+local ui     = safeRequire('openmw.ui')
 
 if not (self and nearby and types and util and core) then
     error('[AntiTheft-Player] CRITICAL: Required modules failed to load!')
@@ -147,6 +149,8 @@ local function log(...)
         seenMessages[msg] = true
     end
 end
+
+
 
 log('=== SCRIPT LOADING STARTED v20.0 - MODULAR ===')
 log('All required modules loaded successfully')
@@ -395,6 +399,33 @@ local function onClearSearchState(eventData)
     end
 end
 
+-- Handle successful blackjack hit (XP gain + Durability loss)
+local function onBlackjackSuccess(data)
+    if not data then return end
+    
+    -- 1. XP Gain (3% of total level progress)
+    -- Note: OpenMW Lua API for progress modification
+    if types.Player.stats.skills.sneak then
+        local sneakSkill = types.Player.stats.skills.sneak(self)
+        local currentProgress = sneakSkill.progress
+        -- Add 0.05 (5%)
+        sneakSkill.progress = math.min(1.0, currentProgress + 0.05)
+        log("[AntiTheft-Player] Blackjack Success: Added 5% Sneak XP. Progress:", currentProgress, "->", sneakSkill.progress)
+        
+        -- If progress reached 1.0, the engine handles level up on next frame/check
+    end
+    
+    -- 2. Durability Loss (Must be done by Global script)
+    if data.weapon then
+        core.sendGlobalEvent('AntiTheft_DamageWeapon', { 
+            weapon = data.weapon, 
+            damage = 50,
+            owner = self 
+        })
+        log("[AntiTheft-Player] Sent AntiTheft_DamageWeapon request to global")
+    end
+end
+
 local function onS3CombatTargetAdded(eventData)
     log("DEBUG: S3CombatTargetAdded event received, actor:", eventData and eventData.id or "nil")
     -- eventData is the actor that entered combat
@@ -409,6 +440,12 @@ local function onS3CombatTargetAdded(eventData)
                     break
                 end
             end
+        end
+
+        -- OVERRIDE: If we explicitly expect this NPC to attack (e.g. witnessed body)
+        if pendingWitnessAttacks[eventData.id] then
+            log("[COMBAT SYNC] NPC", eventData.id, "flagged as witness attacker - Force Combat Allow")
+            fightingPlayer = true
         end
 
         if fightingPlayer then
@@ -1253,6 +1290,7 @@ local function onUpdate(dt)
         -- Skip search during cell change to prevent conflicting AI states
         state.skipSearch = true
         log("Cell change detected - setting skipSearch flag")
+
 
         log("═══════════════════════════════════════════════════")
         log("CELL CHANGE DETECTED!")
@@ -2239,6 +2277,37 @@ local function onUpdate(dt)
                     lowerCellDisposition()
                 end
             else
+                -- Handle Pending Arrests (Force Dialogue) from AntiTheft_ExpectArrest
+                if state.pendingArrests then
+                    local rt = core.getRealTime()
+                    for npcId, timestamp in pairs(state.pendingArrests) do
+                        -- Timeout 15s
+                        if rt - timestamp > 15 then
+                            state.pendingArrests[npcId] = nil
+                        else
+                            -- Check if guard is close enough to interact
+                            -- Scan nearby actors to find the guard object
+                            local found = false
+                            for _, actor in ipairs(nearby.actors) do
+                                if actor.id == npcId then
+                                    found = true
+                                    local dist = (actor.position - self.position):length()
+                                    if dist < 250 then
+                                        log("[ARREST LOGIC] Guard", npcId, "is close ("..math.floor(dist).."u). Forcing dialogue to initiate arrest.")
+                                        if I.Activation then
+                                            I.Activation.activate(actor)
+                                        else
+                                            print("[AntiTheft-Player] Error: I.Activation interface not available")
+                                        end
+                                        state.pendingArrests[npcId] = nil
+                                    end
+                                    break
+                                end
+                            end
+                        end
+                    end
+                end
+
                 state.tRefresh = state.tRefresh + dt
                 if state.tRefresh >= config.UPDATE_PERIOD then
                     state.tRefresh = 0
@@ -2557,6 +2626,8 @@ local function onUpdate(dt)
                 end
             end
         end
+
+        
     end
 end
 
@@ -2666,7 +2737,79 @@ return {
                 pendingBountyMonitoring[data.doorId] = nil
             end
         end,
+        -- Relay events from NPC scripts to global script
+        -- NPC scripts can't send to global directly, must go through player script
+        AntiTheft_Relay_NPCUnconscious = function(data)
+            print("[PLAYER RELAY] Relaying unconscious event to global:", data.npcId, "wasSpotted:", data.wasSpotted)
+            
+            -- Disband follower if it's the current guard (Fix for unconscious follower bug)
+            if state.guard and state.guard.id == data.npcId then
+                 print("[ANTI-THEFT] Current follower knocked UNCONSCIOUS! Disbanding.")
+                 local guardId = state.guard.id
+                 state.guard = nil
+                 state.following = false
+                 state.returningToCounter = false
+                 state.activeGuards[guardId] = nil
+                 -- Also ensure logic doesn't try to use invalid guard
+            end
+            
+            core.sendGlobalEvent('AntiTheft_NPCUnconscious', data)
+        end,
+        
+        AntiTheft_ExpectArrest = function(data)
+             if data and data.npcId then
+                 print("[ARREST LOGIC] Expecting arrest from", data.npcId, "- Monitoring distance for forced dialogue")
+                 if not state.pendingArrests then state.pendingArrests = {} end
+                 state.pendingArrests[data.npcId] = core.getRealTime()
+             end
+        end,
+        AntiTheft_Relay_NPCConscious = function(data)
+            print("[PLAYER RELAY] Relaying conscious event to global:", data.npcId)
+            core.sendGlobalEvent('AntiTheft_NPCConscious', data)
+        end,
+        AntiTheft_Relay_SleepBounty = function(data)
+            print("[PLAYER RELAY] Processing sleep bounty event")
+            local amount = data
+            local npcId = nil
+            
+            -- Handle table input (new format)
+            if type(data) == 'table' then
+                amount = data.amount
+                npcId = data.npcId
+            end
+            
+            amount = tonumber(amount) or 0
+            
+            if amount > 0 then
+                print("[PLAYER RELAY] Sending Bounty Event to Global (Global Patch Applied). Amount:", amount)
+                -- We now trust the Global Script patch to apply the bounty unconditionally.
+                -- Sending event with all necessary data.
+                core.sendGlobalEvent('AntiTheft_SetPlayerBounty', {
+                    bountyAmount = amount,
+                    npcId = npcId,
+                    reason = "Illegal Sleep Spell"
+                })
+                -- Local UI message still good for immediate feedback
+                ui.showMessage("Crime Reported! Bounty added: " .. amount)
+            else
+                print("[PLAYER RELAY] Error: Invalid bounty amount received")
+            end
+        end,
+        AntiTheft_NotifyWitnessAttack = function(data)
+            if data and data.npcId then
+               log("[COMBAT SYNC] Expecting witness attack from", data.npcId)
+               pendingWitnessAttacks[data.npcId] = true
+               -- Auto-clear after 3 seconds in case combat doesn't start
+               async:newUnsavableSimulationTimer(3.0, function() pendingWitnessAttacks[data.npcId] = nil end)
+            end
+        end,
+        AntiTheft_ShowMessage = function(data)
+            if data and data.text then
+                ui.showMessage(data.text)
+            end
+        end,
         S3CombatTargetAdded = onS3CombatTargetAdded,
-        S3CombatTargetRemoved = onS3CombatTargetRemoved
+        S3CombatTargetRemoved = onS3CombatTargetRemoved,
+        AntiTheft_BlackjackSuccess = onBlackjackSuccess
     }
 }
