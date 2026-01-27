@@ -48,7 +48,7 @@ config.MIN_MOVEMENT_THRESHOLD = 10
 config.LOS_HALF_CONE = math.rad(settings.vars:get('losHalfCone') or 170)
 
 -- Detection range (now configurable via settings)
-config.DETECTION_RANGE = settings.distances:get('detectionRange') or 75.0
+config.DETECTION_RANGE = settings.distances:get('detectionRange') or 140.0
 
 -- Magic (now configurable via settings)
 config.EFFECT_INVIS = "invisibility"
@@ -78,13 +78,13 @@ config.invisRemovalMessages = {
 
 -- Filters
 -- example: config.DISABLED_NPC_NAMES = {"caius cosades", "fargoth"}
-config.DISABLED_NPC_NAMES = {"tarancur", "duke dren", "arvesa", "julan"}
+config.DISABLED_NPC_NAMES = {"vasesius viciulus"}
 -- example: config.DISABLED_CELL_NAMES = {"balmora, guild of fighters", "seyda neen, arrille's tradehouse"}
-config.DISABLED_CELL_NAMES = {"imperial prison ship", "mournhold, godsreach", "mournhold, plaza brindisi dorom", "mournhold, great bazaar", "mournhold, temple courtyard", "mournhold temple: high chapel", "mournhold temple: reception area", "ghostgate, temple"}
+config.DISABLED_CELL_NAMES = {"imperial prison ship", "mournhold, godsreach", "mournhold, plaza brindisi dorom", "mournhold, great bazaar", "mournhold, temple courtyard", "mournhold temple: high chapel", "mournhold temple: reception area", "ghostgate, temple", "Molag Mar, Vasesius Viciulus: Trader", "Mournhold, Royal Palace: Courtyard", "Vivec, Library of Vivec"}
 -- example: config.DISABLED_NPC_NAME_CONTAINS = {"farg", "cosad"} , disables every NPC name containing added words
 config.DISABLED_NPC_NAME_CONTAINS = {}
 -- example: config.DISABLED_CELL_NAME_CONTAINS = {"kogo", "adama"} , disables every cell name containing added words
-config.DISABLED_CELL_NAME_CONTAINS = {"arena", "museum"}
+config.DISABLED_CELL_NAME_CONTAINS = {"arena", "museum", "abecette", "canalworks", "plaza", "waistworks", "bath"}
 
 -- Exterior cell exceptions (exact names that allow script activation, ie )
 config.ENABLED_EXTERIOR_CELLS = {

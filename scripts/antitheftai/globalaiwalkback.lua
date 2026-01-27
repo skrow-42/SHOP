@@ -26,7 +26,11 @@ local storage = require('openmw.storage')
 local settings = storage.globalSection("SettingsSHOPset")
 local vars = storage.globalSection("SettingsSHOPsetVars")
 local seenMessages = {}
-
+local core = require('openmw.core')
+local types = require('openmw.types')
+local world = require('openmw.world')
+local classification = require('scripts.antitheftai.modules.npc_classification')
+local companionDetection = require('scripts.antitheftai.modules.companion_detection')
 -- local cache, used by your log() helper
 local _enableGlobalDebug = settings:get('enableGlobalDebug') or false
 local _enableDebug       = settings:get('enableDebug')       or false
@@ -35,13 +39,34 @@ local function log(...)
     if _enableGlobalDebug then
         local args = {...}
         for i, v in ipairs(args) do
-            args[i] = tostring(v)
+            if type(v) == "string" and v:match("^0x%x+$") then
+                -- If it's a hex ID, try to find the NPC in active actors
+                local npcName = nil
+                if world and world.activeActors then
+                    for _, actor in ipairs(world.activeActors) do
+                        if actor.id == v and actor.type == types.NPC then
+                            local record = types.NPC.record(actor)
+                            if record and record.name then
+                                npcName = record.name
+                                break
+                            end
+                        end
+                    end
+                end
+                if npcName then
+                    args[i] = npcName .. " (" .. v .. ")"
+                else
+                    -- Fallback: just use the ID if name not found
+                    args[i] = v
+                end
+            end
+            args[i] = tostring(args[i])
         end
         local msg = table.concat(args, " ")
-        if not seenMessages[msg] then
-            print("[GlobalWalkBack]", ...)
-            seenMessages[msg] = true
-        end
+        --if not seenMessages[msg] then
+        print("[GlobalWalkBack]", table.unpack(args))
+           -- seenMessages[msg] = true
+        --end
     end
 end
 
@@ -68,8 +93,8 @@ local world = require('openmw.world')
 local util  = require('openmw.util')
 local core  = require('openmw.core')
 local types = require('openmw.types')
-local config = require('scripts.antitheftai.modules.config')
-
+local async = require('openmw.async')
+local config        = require('scripts.antitheftai.modules.config')
 local pendingReturns  = {}
 local activeRotations = {}
 local wanderingNPCs = {}  -- Track NPCs currently wandering
@@ -81,6 +106,24 @@ local lastPlayerCell = nil  -- Track the last cell the player was in
 local searchTimers = {}  -- Track search timers for NPCs
 local returnStartTimes = {}  -- Track when NPCs started returning home (for simulation when not loaded)
 local recentlyRotated = {}  -- Track NPCs that recently completed rotation to prevent duplicate returns
+local doorLastLockLevels = {}  -- Track last lock levels for doors (doorId -> lockLevel)
+local doorLockCheckDelay = 0  -- Manual delay timer for door lock checks in global script
+local doorInvestigation = {}  -- Track NPCs investigating doors (npcId -> {doorPosition, startTime, lastLog})
+local followingNPCs = {}  -- Track NPCs currently following the player (npcId -> true)
+
+-- Local cache for NPC race/gender data (fetched once and reused)
+local npcRaceGenderCache = {}
+
+-- Combat door lock monitoring state variables (moved from player script)
+local monitorDoorLocksDuringCombat = false
+local combatDoorStates = {}
+local doorLockStates = {}
+local combatDoorInvestigation = {}  -- Track NPCs approaching doors during combat
+local npcsInCombatWithPlayer = {}  -- Track which NPCs are in combat with player (npcId -> true)
+local pendingBountyChecks = {}  -- Track pending bounty checks waiting for LoS verification after unlock (doorId -> {npcId, bountyAmount, timestamp})
+
+-- Door lock check function (will be called directly by async timer)
+-- Note: performDoorLockCheck is defined later in the file
 
 ----------------------------------------------------------------------
 -- Helper: find NPC by ID
@@ -90,6 +133,13 @@ local function findNPC(npcId)
         if actor.id == npcId then return actor end
     end
     return nil
+end
+
+--── FIX : remember race/gender once passed from player script
+local function rememberRaceGender(npcId,race,gender)
+    if npcId and race and gender then
+        npcRaceGenderCache[npcId] = {race=race,gender=gender}
+    end
 end
 
 ----------------------------------------------------------------------
@@ -276,7 +326,13 @@ local function processPendingReturns(dt)
             local npc = findNPC(ret.npcId)
 
             if npc and npc:isValid() then
-                local dist = (npc.position - ret.exactHomePosition):length()
+                -- Determine target position based on two-phase return
+                local targetPos = ret.exactHomePosition
+                if ret.postTeleportPos then
+                    targetPos = ret.postTeleportPos
+                end
+
+                local dist = (npc.position - targetPos):length()
                 local curPos = util.vector3(npc.position.x, npc.position.y, npc.position.z)
 
                 -- Check if NPC has stopped moving
@@ -292,23 +348,105 @@ local function processPendingReturns(dt)
 
                 -- Log distance periodically (not every frame)
                 if not ret.lastDistanceLog or ret.totalTime - ret.lastDistanceLog >= 1.0 then
-                    log("NPC", ret.npcId, "distance to home:", math.floor(dist), "units")
+                    log("NPC", ret.npcId, "distance to target:", math.floor(dist), "units")
                     ret.lastDistanceLog = ret.totalTime
                 end
 
-                -- Check if NPC has arrived home (within 15 units tolerance)
+                -- Check if NPC has arrived at target (within 15 units tolerance)
                 if dist < 15 then
-                    log("NPC", ret.npcId, "arrived home (within 15 units) - starting rotation to base position")
+                    if ret.postTeleportPos then
+                        -- Phase 1 complete: arrived at post-teleport position (door)
+                        local state = require('scripts.antitheftai.modules.state')
+                        local returnPos = state.returnPositions and state.returnPositions[ret.npcId]
 
-                    -- Clear AI packages
-                    npc:sendEvent('RemoveAIPackages')
+                        if returnPos then
+                            -- Walk-after-teleport: Teleport to entrance, then walk home
+                            log("NPC", ret.npcId, "arrived at door - teleporting to entrance and walking home")
 
-                    -- Start rotation to home orientation
-                    startGlobalRotation(npc, ret.homeRotation, 0.85, ret.exactHomePosition, ret.homeRotation)
+                            local npc = findNPC(ret.npcId)
+                            if npc and npc:isValid() then
+                                -- Teleport to entrance
+                                npc:teleport(npc.cell.name, returnPos, { onGround = true })
+                                log("  ✓ Teleported to entrance position:", returnPos)
 
-                    -- Remove from pending returns
-                    table.remove(pendingReturns, i)
-                    i = i - 1
+                                -- Send Travel package to home
+                                npc:sendEvent('RemoveAIPackages')
+                                npc:sendEvent('StartAIPackage', {
+                                    type = 'Travel',
+                                    destPosition = ret.exactHomePosition,
+                                    cancelOther = true
+                                })
+                                log("  ✓ Travel package sent - NPC will walk to home")
+
+                                -- Update pending return to track this new walk
+                                ret.postTeleportPos = nil -- Clear this so next time it treats it as final arrival
+                                ret.lastPosition = nil
+                                ret.stopCount = 0
+                                ret.timer = 0.2
+
+                                -- Clear stored return position
+                                state.returnPositions[ret.npcId] = nil
+                                state.postTeleportPositions[ret.npcId] = nil
+                            end
+                        else
+                            -- Fallback: No return position stored, teleport directly to home
+                            log("NPC", ret.npcId, "arrived at post-teleport position - teleporting directly to home (no return position)")
+
+                            local npc = findNPC(ret.npcId)
+                            if npc and npc:isValid() then
+                                npc:sendEvent('RemoveAIPackages')
+
+                                log("NPC", ret.npcId, "reached home. Applying direct rotation teleport")
+                                log("  Target rotation - X:", math.deg(ret.homeRotation.x), "Y:", math.deg(ret.homeRotation.y), "Z:", math.deg(ret.homeRotation.z))
+
+                                -- Build final rotation transform
+                                local finalRot = util.transform.rotateZ(ret.homeRotation.z) *
+                                                 util.transform.rotateY(ret.homeRotation.y) *
+                                                 util.transform.rotateX(ret.homeRotation.x)
+
+                                -- Teleport NPC to home position with correct rotation
+                                npc:teleport(npc.cell.name, ret.exactHomePosition, {
+                                    rotation = finalRot,
+                                    onGround = true
+                                })
+
+                                log("NPC teleported to home with rotation - COMPLETE")
+
+                                -- Send ready event immediately
+                                local player = world.players[1]
+                                if player then
+                                    player:sendEvent('AntiTheft_NPCReady', { npcId = ret.npcId })
+                                    player:sendEvent('AntiTheft_ClearSearchState', { npcId = ret.npcId })
+                                    log("  ✓ Sent NPCReady and ClearSearchState events")
+                                end
+
+                                -- Enable default AI behavior after teleporting home
+                                npc:sendEvent('AntiTheft_EnableDefaultAI')
+                            end
+
+                            -- Clear two-phase return state
+                            local state = require('scripts.antitheftai.modules.state')
+                            state.postTeleportPositions[ret.npcId] = nil
+                            state.twoPhaseReturns[ret.npcId] = nil
+
+                            -- Remove from pending returns
+                            table.remove(pendingReturns, i)
+                            i = i - 1
+                        end
+                    else
+                        -- Normal return: arrived home, start rotation
+                        log("NPC", ret.npcId, "arrived home (within 15 units) - starting rotation to base position")
+
+                        -- Clear AI packages
+                        npc:sendEvent('RemoveAIPackages')
+
+                        -- Start rotation to home orientation
+                        startGlobalRotation(npc, ret.homeRotation, 0.85, ret.exactHomePosition, ret.homeRotation)
+
+                        -- Remove from pending returns
+                        table.remove(pendingReturns, i)
+                        i = i - 1
+                    end
                 else
                     -- Still traveling, check again in 0.2 seconds
                     ret.timer = 0.2
@@ -401,20 +539,30 @@ local function onStartWalkingHome(data)
     log("START WALKING HOME for NPC", data.npcId)
     log("  (Wandering complete, now traveling to home)")
 
+    -- Check for post-teleport position (two-phase return)
+    local state = require('scripts.antitheftai.modules.state')
+    local postTeleportPos = state.postTeleportPositions[data.npcId]
+    local destPosition = data.homePosition
+
+    if postTeleportPos then
+        destPosition = postTeleportPos
+        log("  Two-phase return detected: NPC will walk to post-teleport position first")
+    end
+
     local npc = findNPC(data.npcId)
     if npc and npc:isValid() then
         log("  ✓ NPC found in loaded cells - sending travel package")
-        log("  Home position:", data.homePosition)
+        log("  Destination:", destPosition)
 
         npc:sendEvent('RemoveAIPackages')
         npc:sendEvent('StartAIPackage', {
             type = 'Travel',
-            destPosition = data.homePosition,
+            destPosition = destPosition,
             cancelOther = true
         })
 
         log("  ✓ Travel package sent - NPC will walk to home")
-        log("  Distance:", math.floor((npc.position - data.homePosition):length()), "units")
+        log("  Distance:", math.floor((npc.position - destPosition):length()), "units")
     else
         log("  NPC not in loaded cells (unexpected for real-time return)")
     end
@@ -424,6 +572,7 @@ local function onStartWalkingHome(data)
         npcId              = data.npcId,
         exactHomePosition  = data.homePosition,
         homeRotation       = data.homeRotation,
+        postTeleportPos    = postTeleportPos,
         timer              = 0.2,
         phase              = 1,
         totalTime          = 0,
@@ -603,6 +752,18 @@ local function onTeleportGuard(data)
 
     local npc = findNPC(data.npcId)
     if npc and npc:isValid() then
+        -- Store the post-teleport position for two-phase return
+        local state = require('scripts.antitheftai.modules.state')
+        state.postTeleportPositions[data.npcId] = data.position
+        log("  Stored post-teleport position for NPC", data.npcId, ":", data.position)
+
+        -- Store the return position (entrance) for walk-after-teleport
+        if data.returnPosition then
+            state.returnPositions = state.returnPositions or {}
+            state.returnPositions[data.npcId] = data.returnPosition
+            log("  Stored return position (entrance) for NPC", data.npcId, ":", data.returnPosition)
+        end
+
         -- Teleport guard to player's new position in same cell
         npc:teleport(data.cellName, data.position, { onGround = true })
         log("  ✓ Guard teleported to player's position through transition door")
@@ -741,6 +902,9 @@ local function onStartReturnHome(data)
     log("GLOBAL: Return home request for NPC", data.npcId)
     log("  (Player in same cell - using AI movement with rotation)")
 
+    local state = require('scripts.antitheftai.modules.state')
+    local postTeleportPos = state.postTeleportPositions[data.npcId]
+
     local npc = findNPC(data.npcId)
     if npc and npc:isValid() then
         log("  ✓ NPC found - sending travel package and setting up rotation")
@@ -756,14 +920,23 @@ local function onStartReturnHome(data)
         -- Clear any existing AI packages
         npc:sendEvent('RemoveAIPackages')
 
+        -- Determine destination based on two-phase return
+        local destination = data.homePosition
+        if postTeleportPos then
+            -- Two-phase return: first travel to post-teleport position
+            destination = postTeleportPos
+            state.twoPhaseReturns[data.npcId] = true
+            log("  ✓ Two-phase return: NPC will first travel to post-teleport position", postTeleportPos)
+        end
+
         -- Send travel package
         npc:sendEvent('StartAIPackage', {
             type        = 'Travel',
-            destPosition= data.homePosition,
+            destPosition= destination,
             cancelOther = true
         })
 
-        log("  ✓ Travel package sent - NPC will walk to home")
+        log("  ✓ Travel package sent - NPC will walk to destination")
     else
         log("  ⚠ NPC not found in loaded cells")
     end
@@ -777,7 +950,8 @@ local function onStartReturnHome(data)
         phase              = 1,
         totalTime          = 0,
         lastPosition       = nil,
-        stopCount          = 0
+        stopCount          = 0,
+        postTeleportPos    = postTeleportPos  -- Store for two-phase return
     })
     log("  ✓ Added to pending returns for rotation when arrived")
 
@@ -824,6 +998,528 @@ local function onLowerCellDisposition(data)
     log("=== CELL DISPOSITION LOWERING COMPLETE ===")
 end
 
+local npcVoiceResponses = {
+    argonian = {
+        female = {
+            {response = "Hiss.", file = "sound/Vo/a/f/Thf_AF004.wav"},
+            {response = "Stop!", file = "sound/Vo/a/f/Thf_AF003.wav"},
+            {response = "No! Thief!", file = "sound/Vo/a/f/Thf_AF002.wav"},
+            {response = "Stop the thief!", file = "sound/Vo/a/f/Thf_AF001.wav"},
+        },
+        male = {
+            {response = "I see you!", file = "sound/vo/a/m/Thf_AM005.wav"},
+            {response = "Scoundrel.", file = "sound/vo/a/m/Thf_AM001.wav"},
+        }
+    },
+    breton = {
+        female = {
+            {response = "I saw that!", file = "vo/b/f/Thf_BF003.wav"},
+            {response = "This is outrageous. Guards!", file = "vo/b/f/Thf_BF002.wav"},
+            {response = "You scoundrel!", file = "vo/b/f/Thf_BF001.wav"},
+            {response = "Do you take me for a fool!", file = "vo/b/f/Thf_BF005.wav"},
+        },
+        male = {
+            {response = "What do you think you're doing?!", file = "vo/b/m/Thf_BM004.wav"},
+            {response = "You cowardly thief!", file = "vo/b/m/Thf_BM003.wav"},
+            {response = "Guards!", file = "vo/b/m/Thf_BM002.wav"},
+            {response = "Do you take me for a fool!", file = "vo/b/m/Thf_BM005.wav"},
+        }
+    },
+    darkelf = {
+        female = {
+            {response = "Filthy S'wit!", file = "sound/Vo/d/f/Hlo_DF027.wav"},
+            {response = "Help!", file = "sound/Vo/d/f/Thf_DF003.wav"},
+            {response = "Filthy S'wit!", file = "sound/Vo/d/f/Hlo_DF027.wav"},
+        },
+        male = {
+            {response = "That is quite enough thief!", file = "sound/vo/d/m/Thf_DM004.wav"},
+            {response = "You're finished!", file = "sound/vo/d/m/Thf_DM003.wav"},
+            {response = "Wretched thief!", file = "sound/vo/d/m/Thf_DM002.wav"},
+            {response = "I'll deal with you thief!", file = "sound/vo/d/m/Thf_DM001.wav"},
+            {response = "Help, guards!", file = "sound/vo/d/m/Thf_DM005.wav"},
+            {response = "Maybe I'll throw you into the river. How'd like that, you thief?", file = "sound/Vo/at_ord/ATOrd_Thf01.wav"},
+        }
+    },
+    highelf = {
+        female = {
+            {response = "You scoundrel! You won't get away with this! Thief!", file = "sound/vo/h/f/Thf_HF004.wav"},
+            {response = "Help! Thief!", file = "sound/vo/h/f/Thf_HF003.wav"},
+            {response = "You've been caught! Guards!", file = "sound/vo/h/f/Thf_HF002.wav"},
+            {response = "Why, you little thief! Come back!", file = "sound/vo/h/f/Thf_HF001.wav"},
+            {response = "There is no escape!", file = "sound/vo/h/f/Thf_HF005.wav"},
+        },
+        male = {
+            {response = "Thief!", file = "sound/vo/h/m/Thf_HM004.wav"},
+            {response = "You'll get more than you bargained for, thief!", file = "sound/vo/h/m/Thf_HM003.wav"},
+            {response = "Thievery is a serious offense! Guards!", file = "sound/vo/h/m/Thf_HM002.wav"},
+            {response = "Do you take me for a fool? Guards!", file = "sound/vo/h/m/Thf_HM001.wav"},
+            {response = "You can't escape!", file = "sound/vo/h/m/Thf_HM005.wav"},
+        }
+    },
+    imperial = {
+        female = {
+            {response = "You've made your last mistake! Thief!", file = "sound/Vo/i/f/Thf_IF003.wav"},
+            {response = "You've stolen for the last time!", file = "sound/Vo/i/f/Thf_IF002.wav"},
+            {response = "Help! Guards! A thief!", file = "sound/Vo/i/f/Thf_IF001.wav"},
+        },
+        male = {
+            {response = "Help! Guards! A thief!", file = "sound/Vo/i/m/Thf_IM001.wav"},
+            {response = "You've stolen for the last time!", file = "sound/Vo/i/m/Thf_IM002.wav"},
+            {response = "You've made your last mistake thief!", file = "sound/Vo/i/m/Thf_IM003.wav"},
+        }
+    },
+    khajiit = {
+        female = {
+            {response = "You can't escape!", file = "sound/vo/k/f/Thf_KF004.wav"},
+            {response = "Stop! Thief!", file = "sound/vo/k/f/Thf_KF002.wav"},
+            {response = "Thief. No! Thief!", file = "sound/vo/k/f/Thf_KF001.wav"},
+            {response = "You can't escape!", file = "sound/vo/k/f/Thf_KF005.wav"},
+        },
+        male = {
+            {response = "You can't escape", file = "sound/vo/k/m/Thf_KM004.wav"},
+            {response = "Stop! Thief!", file = "sound/vo/k/m/Thf_KM002.wav"},
+            {response = "Thief. No! Thief!", file = "sound/vo/k/m/Thf_KM001.wav"},
+            {response = "You can't escape!", file = "sound/vo/k/m/Thf_KM005.wav"},
+        }
+    },
+    nord = {
+        female = {
+            {response = "Guards!", file = "sound/vo/n/f/Thf_NF004.wav"},
+            {response = "Quickly, over here! A thief!", file = "sound/vo/n/f/Thf_NF002.wav"},
+            {response = "Stop that thief!", file = "sound/vo/n/f/Thf_NF001.wav"},
+        },
+        male = {
+            {response = "There is a thief here! Guards!", file = "sound/vo/n/m/Thf_NM004.wav"},
+            {response = "Not today, thief!", file = "sound/vo/n/m/Thf_NM002.wav"},
+            {response = "This is the end for you, thief!", file = "sound/vo/n/m/Thf_NM001.wav"},
+            {response = "Stay where you are, thief!", file = "sound/vo/n/m/Thf_NM005.wav"},
+        }
+    },
+    orc = {
+        female = {
+            {response = "Surrender, thief!", file = "sound/vo/o/f/Thf_OF004.wav"},
+            {response = "Hold, thief!", file = "sound/vo/o/f/Thf_OF003.wav"},
+            {response = "Guards! A thief!", file = "sound/vo/o/f/Thf_OF002.wav"},
+            {response = "You think me a fool? Guards!", file = "sound/vo/o/f/Thf_OF001.wav"},
+            {response = "You can't hide, thief!", file = "sound/vo/o/f/Thf_OF005.wav"},
+        },
+        male = {
+            {response = "Thief!", file = "sound/vo/o/m/Thf_OM004.wav"},
+            {response = "Coward!", file = "sound/vo/o/m/Thf_OM003.wav"},
+            {response = "Surrender yourself! Guards!", file = "sound/vo/o/m/Thf_OM002.wav"},
+            {response = "Do you take me for a fool?", file = "sound/vo/o/m/Thf_OM001.wav"},
+            {response = "You can't escape!", file = "sound/vo/o/m/Thf_OM005.wav"},
+        }
+    },
+    redguard = {
+        female = {
+            {response = "Over here!", file = "sound/vo/r/f/Thf_RF004.wav"},
+            {response = "You'll pay for that!", file = "sound/vo/r/f/Thf_RF003.wav"},
+            {response = "Guards!", file = "sound/vo/r/f/Thf_RF002.wav"},
+            {response = "Not on my watch, thief.", file = "sound/vo/r/f/Thf_RF001.wav"},
+            {response = "I will not be taken for a fool!", file = "sound/vo/r/f/Thf_RF005.wav"},
+        },
+        male = {
+            {response = "You'll pay for that!", file = "sound/vo/r/m/Thf_RM003.wav"},
+            {response = "Over here!", file = "sound/vo/r/m/Thf_RM004.wav"},
+            {response = "Guards!", file = "sound/vo/r/m/Thf_RM002.wav"},
+            {response = "Not on my watch, thief.", file = "sound/vo/r/m/Thf_RM001.wav"},
+            {response = "I will not be taken for a fool!", file = "sound/vo/r/m/Thf_RM005.wav"},
+        }
+    },
+    woodelf = {
+        female = {
+            {response = "You'll get yours, thief!", file = "sound/vo/w/f/Thf_WF004.wav"},
+            {response = "Over here! A thief!", file = "sound/vo/w/f/Thf_WF003.wav"},
+            {response = "What are you doing?!", file = "sound/vo/w/f/Thf_WF002.wav"},
+            {response = "Over here! Thief!", file = "sound/vo/w/f/Thf_WF005.wav"},
+        },
+        male = {
+            {response = "You've stolen for the last time, thief!", file = "sound/vo/w/m/Thf_WM004.wav"},
+            {response = "Over here!", file = "sound/vo/w/m/Thf_WM003.wav"},
+            {response = "Outrageous!", file = "sound/vo/w/m/Thf_WM002.wav"},
+            {response = "No! Stop!", file = "sound/vo/w/m/Thf_WM001.wav"},
+            {response = "What's this? Thief!", file = "sound/vo/w/m/Thf_WM005.wav"},
+        }
+    },
+    -- Additional special NPC voice responses can be added here...
+    T_Mw_Malahk_Orc = {
+        female = {
+            {response = "Surrender, thief!", file = "sound/vo/o/f/Thf_OF004.wav"},
+            {response = "Hold, thief!", file = "sound/vo/o/f/Thf_OF003.wav"},
+            {response = "Guards! A thief!", file = "sound/vo/o/f/Thf_OF002.wav"},
+            {response = "You think me a fool? Guards!", file = "sound/vo/o/f/Thf_OF001.wav"},
+            {response = "You can't hide, thief!", file = "sound/vo/o/f/Thf_OF005.wav"},
+        },
+        male = {
+            {response = "Thief!", file = "sound/vo/o/m/Thf_OM004.wav"},
+            {response = "Coward!", file = "sound/vo/o/m/Thf_OM003.wav"},
+            {response = "Surrender yourself! Guards!", file = "sound/vo/o/m/Thf_OM002.wav"},
+            {response = "Do you take me for a fool?", file = "sound/vo/o/m/Thf_OM001.wav"},
+            {response = "You can't escape!", file = "sound/vo/o/m/Thf_OM005.wav"},
+        }
+    },
+    T_Val_Imga = {
+        male = {
+            {response = "Guards! Guards! There is a thief among us!", file = "sound/Va/Vo/img/m/Thf_004.wav"},
+            {response = "Thievery! Banditry! Skullduggery!", file = "sound/Va/Vo/img/m/Thf_003.wav"},
+            {response = "I see you, thief.", file = "sound/Va/Vo/img/m/Thf_002.wav"},
+            {response = "Your name will live in infamy, blasted thief.", file = "sound/Va/Vo/img/m/Thf_001.wav"},
+        }
+    },
+    T_Cnq_ChimeriQuey = {
+        female = {
+            {response = "You are repulsive. Get out of here!", file = "sound/TR/Vo/TR_ChiF_Hlo_001.wav"},
+        },
+        male = {
+            {response = "Go away.", file = "sound/TR/Vo/TR_ChiM_Hlo_002.wav"},
+        }
+    },
+    T_Cnq_Keptu = {
+        female = {
+            {response = "No!", file = "sound/TR/Vo/TR_KepF_Hit_001.wav"},
+        },
+        male = {
+            {response = "Ugghh! Not today!", file = "sound/TR/Vo/TR_KepM_Hlo_002.wav"},
+        }
+    },
+    T_Sky_Reachman = {
+        female = {
+            {response = "Put it back!", file = "sound/vo/b/f/Thf_BF004.wav"},
+            {response = "I saw that!", file = "sound/vo/b/f/Thf_BF003.wav"},
+            {response = "This is outrageous. Guards!", file = "sound/vo/b/f/Thf_BF002.wav"},
+            {response = "You scoundrel!", file = "sound/vo/b/f/Thf_BF001.wav"},
+            {response = "Do you take me for a fool!", file = "sound/vo/b/f/Thf_BF005.wav"},
+        },
+        male = {
+            {response = "Surrender!", file = "sound/sky/Vo/Rc/m/Thf_RcM002.wav"},
+            {response = "You take me for a fool.", file = "sound/sky/Vo/Rc/m/Thf_RcM003.wav"},
+            {response = "Thief!", file = "sound/sky/Vo/Rc/m/Thf_RcM004.wav"},
+            {response = "Over here!", file = "sound/sky/Vo/Rc/m/Thf_RcM001.wav"},
+        }
+    }
+}
+
+local raceIdToName = {
+    ["argonian"] = "Argonian",
+    ["breton"] = "Breton",
+    ["darkelf"] = "DarkElf",
+    ["highelf"] = "HighElf",
+    ["imperial"] = "Imperial",
+    ["khajiit"] = "Khajiit",
+    ["nord"] = "Nord",
+    ["orc"] = "Orc",
+    ["redguard"] = "Redguard",
+    ["woodelf"] = "WoodElf",
+    ["imga"] = "T_Val_Imga",  -- example special case
+    ["chimeriquey"] = "T_Cnq_ChimeriQuey",
+    ["keptuquey"] = "T_Cnq_Keptu",
+    ["reachman"] = "T_Sky_Reachman"
+}
+
+local function playNpcVoiceResponse(npc, race, gender)
+    local player = world.players[1]
+
+    if not npc then
+        log("[NPC VOICE RESPONSE] ERROR: npc argument is nil or missing")
+        return
+    end
+    if not npc:isValid() then
+        log("[NPC VOICE RESPONSE] ERROR: npc is invalid or not valid")
+        return
+    end
+
+    --── FIX : first: check cached map
+    if (not race or not gender) and npcRaceGenderCache then
+        local m=npcRaceGenderCache[npc.id]; if m then race,gender=m.race,m.gender end
+    end
+    -- fallback to record lookup
+    if not race or not gender then
+        local record = types.NPC.record(npc)
+        if not record then
+            log("[NPC VOICE RESPONSE] ERROR: Failed to get NPC record for npc ID:", npc.id)
+            return
+        end
+
+        -- Try multiple methods to extract race ID
+        local rawRace = nil
+        if record.race then
+            -- Method 1: record.race.id (standard)
+            if record.race.id then
+                rawRace = record.race.id:lower()
+            -- Method 2: record.race is already a string
+            elseif type(record.race) == "string" then
+                rawRace = record.race:lower()
+            -- Method 3: Try to iterate the race object to find an id field
+            else
+                for k, v in pairs(record.race) do
+                    if k == "id" or k == "recordId" then
+                        rawRace = tostring(v):lower()
+                        break
+                    end
+                end
+            end
+        end
+        
+        if not rawRace then
+            log("[NPC VOICE RESPONSE] ERROR: Could not extract race id from record for npc ID:", npc.id)
+            log("[NPC VOICE RESPONSE] record.race type:", type(record.race))
+            log("[NPC VOICE RESPONSE] record.race value:", tostring(record.race))
+            return
+        end
+        
+        race = raceIdToName[rawRace]
+        if not race then
+            log("[NPC VOICE RESPONSE] ERROR: npc race", rawRace, "not found in raceIdToName mapping for npc ID:", npc.id)
+            return
+        end
+
+        gender = record.female and "female" or "male"
+        
+        -- Cache the result for future use
+        npcRaceGenderCache[npc.id] = {race=race, gender=gender}
+        log("[NPC VOICE RESPONSE] Cached race:", race, "gender:", gender, "for npc:", npc.id)
+    end
+
+    local responsesForRaceGender = npcVoiceResponses[race] and npcVoiceResponses[race][gender]
+    if not responsesForRaceGender or #responsesForRaceGender == 0 then
+        log("[NPC VOICE RESPONSE] WARNING: no voice responses found for race", race, "gender", gender)
+        return
+    end
+
+    local idx = math.random(#responsesForRaceGender)
+    local voiceResponse = responsesForRaceGender[idx]
+    if voiceResponse and voiceResponse.file and voiceResponse.response then
+        log("[NPC VOICE RESPONSE] Playing voice file:", voiceResponse.file, "for npc ID:", npc.id)
+        core.sound.say(voiceResponse.file, npc, voiceResponse.response)
+        player:sendEvent('ShowMessage', { message = voiceResponse.response })
+
+        else
+        log("[NPC VOICE RESPONSE] WARNING: invalid voiceResponse data for npc ID:", npc.id)
+    end
+end
+
+----------------------------------------------------------------------
+-- ★★★ EVENT: Apply Lock Spell Bounty ★★★
+----------------------------------------------------------------------
+local function onApplyLockSpellBounty(data)
+    if not data or not data.bountyAmount then return end
+
+    log("═══════════════════════════════════════════════════")
+    log("APPLYING LOCK SPELL BOUNTY")
+    log("  Amount:", data.bountyAmount, "gold")
+
+    local player = world.players[1]
+    if not player then
+        log("  ERROR: Could not find player")
+        return
+    end
+
+    -- Get current bounty (use getCrimeLevel, not getBounty)
+    local currentBounty = 0
+    if types.Player.getCrimeLevel then
+        currentBounty = types.Player.getCrimeLevel(player) or 0
+    end
+    log("  Current bounty:", currentBounty)
+
+    -- Add the bounty amount (use setCrimeLevel, not setBounty)
+    if types.Player.setCrimeLevel then
+        types.Player.setCrimeLevel(player, currentBounty + data.bountyAmount)
+    end
+    log("  New bounty:", currentBounty + data.bountyAmount)
+    log("  hasFollowingNPC flag:", tostring(data.hasFollowingNPC))
+    
+    -- Send detection pulse to alert NPCs only if no NPC is following player
+    if data.hasFollowingNPC then
+        log("  NPC is following player - skipping detection pulse")
+    else
+        log("  No NPC following - sending detection pulse")
+        core.sendGlobalEvent('AntiTheft_SendDetectionPulse', {
+            playerPosition = data.playerPosition or (world.players[1] and world.players[1].position)
+        })
+    end
+    
+    -- Show message to player
+    player:sendEvent('ShowMessage', {
+        message = "You have been caught locking doors! Bounty increased by " .. data.bountyAmount .. " gold."
+    })
+
+    -- Play NPC voice response if we have the NPC ID
+    if data.npcId then
+        local npc = nil
+        -- Try to find the NPC in active actors
+        for _, actor in ipairs(world.activeActors) do
+            if actor.id == data.npcId then
+                npc = actor
+                break
+            end
+        end
+        
+        if npc and npc:isValid() then
+            log("  Playing voice response for NPC", data.npcId)
+            
+            -- If race and gender were provided in the event, cache them and pass to the function
+            if data.npcRace and data.npcGender then
+                -- Convert race ID to the format used in npcVoiceResponses
+                local raceIdToName = {
+                    ["argonian"] = "argonian",
+                    ["breton"] = "breton",
+                    ["dark elf"] = "darkelf",
+                    ["darkelf"] = "darkelf",
+                    ["high elf"] = "highelf",
+                    ["highelf"] = "highelf",
+                    ["imperial"] = "imperial",
+                    ["khajiit"] = "khajiit",
+                    ["nord"] = "nord",
+                    ["orc"] = "orc",
+                    ["redguard"] = "redguard",
+                    ["wood elf"] = "woodelf",
+                    ["woodelf"] = "woodelf"
+                }
+                local raceName = raceIdToName[data.npcRace] or data.npcRace
+                
+                -- Cache race and gender
+                npcRaceGenderCache[npc.id] = {race=raceName, gender=data.npcGender}
+                log("  Cached race from event:", raceName, "gender:", data.npcGender)
+                
+                -- Call with race and gender parameters
+                playNpcVoiceResponse(npc, raceName, data.npcGender)
+            else
+                -- Call without parameters, will use cache or record lookup
+                playNpcVoiceResponse(npc)
+            end
+        else
+            log("  WARNING: Could not find NPC", data.npcId, "to play voice response")
+        end
+    else
+        log("  WARNING: No npcId provided in bounty event - cannot play voice response")
+    end
+
+    log("✓ Lock spell bounty applied successfully")
+    log("═══════════════════════════════════════════════════")
+end
+
+----------------------------------------------------------------------
+
+-- New event handler to play NPC voice in global script (fixes local script permission error)
+
+
+local function onPlayNPCVoice(data)
+    if not data or not data.npcId or not data.voiceFile then
+        log("[AntiTheft_PlayNPCVoice] Missing npcId or voiceFile in event data")
+        return
+    end
+
+    local npc = nil
+    for _, actor in ipairs(world.activeActors) do
+        if actor.id == data.npcId and actor.type == types.NPC then
+            npc = actor
+            break
+        end
+    end
+
+    if not npc or not npc:isValid() then
+        log("[AntiTheft_PlayNPCVoice] NPC not found or invalid:", data.npcId)
+        return
+    end
+
+    log("[AntiTheft_PlayNPCVoice] Playing voice on NPC", data.npcId, "file:", data.voiceFile)
+
+    local player = world.players[1]
+    if player then
+        local messageText = data.response or "NPC voice playing..."
+        player:sendEvent('ShowMessage', { message = messageText })
+    else
+        log("[AntiTheft_PlayNPCVoice] Could not find player to show message")
+    end
+
+    -- Use core.sound.say to play voice on NPC actor
+    core.sound.say(data.voiceFile, npc, data.response)
+    player:sendEvent('ShowMessage', { message = data.response })
+end
+
+
+
+
+
+-- ★★★ EVENT: Door Detection ★★★
+local function onDoorDetection(data)
+    log("[DOOR DETECTION] Global script received door detection event")
+
+    local player = world.players[1]
+    if not player then
+        log("[DOOR DETECTION] ERROR: Could not find player")
+        return
+    end
+
+    -- Player position and facing direction
+    local playerPos     = player.position
+    local playerForward = player.rotation:apply(util.vector3(0, 1, 0))
+
+    -- Detection parameters
+    local maxDistance = 400             -- units
+    local maxAngle    = math.rad(360)    -- 30-degree cone
+
+    local closestDoor     = nil
+    local closestDistance = math.huge
+    local closestAngle    = math.huge
+
+    ------------------------------------------------------------------
+    --  Iterate every door reference in the player’s current cell
+    ------------------------------------------------------------------
+    for _, door in ipairs(player.cell:getAll(types.Door)) do
+        -- Skip teleport doors (remove this line if you want them)
+        if not types.Door.isTeleport(door) then
+            local doorPos  = door.position
+            local distance = (doorPos - playerPos):length()
+
+            if distance <= maxDistance then
+                local toDoor = (doorPos - playerPos):normalize()
+                local angle  = math.acos(playerForward:dot(toDoor))
+
+                if angle <= maxAngle
+                   and (distance < closestDistance
+                     or (distance == closestDistance and angle < closestAngle)) then
+                    closestDoor     = door
+                    closestDistance = distance
+                    closestAngle    = angle
+                end
+            end
+        end
+    end
+
+    ------------------------------------------------------------------
+    --  Save initial lock level for closest door
+    ------------------------------------------------------------------
+    if closestDoor then
+        local doorRecord = types.Door.record(closestDoor)
+        local doorPos = closestDoor.position
+        local lockedDoorPos = closestDoor.position
+        log("[DOOR DETECTION] Door detected:")
+        log("  ID:         " .. tostring(closestDoor.id))
+        log("  Door Coords:         " .. tostring(doorPos))
+        log("  Name:       " .. (doorRecord and doorRecord.name or "unnamed door"))
+        log("  Locked:     " .. tostring(types.Lockable.isLocked(closestDoor)))
+        log("  Lock Level: " .. tostring(types.Lockable.getLockLevel(closestDoor)))
+        log("  State:      " .. tostring(types.Door.getDoorState(closestDoor)))
+        log("  Is Closed:  " .. tostring(types.Door.isClosed(closestDoor)))
+        log("  Is Open:    " .. tostring(types.Door.isOpen(closestDoor)))
+        log("  Is Teleport:" .. tostring(types.Door.isTeleport(closestDoor)))
+        log("  Distance:   " .. string.format("%.1f", closestDistance) .. " units")
+        log("  Angle:      " .. string.format("%.1f", math.deg(closestAngle)) .. " degrees")
+
+        -- Save/Update last lock level for this door
+        local doorId = closestDoor.id
+        local isLocked = types.Lockable.isLocked(closestDoor)
+        local rawLockLevel = types.Lockable.getLockLevel(closestDoor)
+        local effectiveLockLevel = isLocked and rawLockLevel or 0
+        doorLastLockLevels[doorId] = effectiveLockLevel
+        log("[DOOR DETECTION] Updated last lock level for door", doorId, ":", effectiveLockLevel, "(isLocked:", isLocked, "rawLevel:", rawLockLevel, ")")
+    else
+        log("[DOOR DETECTION] No door detected in range or facing direction")
+    end
+end
+
 ----------------------------------------------------------------------
 -- ★★★ EVENT: Set Hello Value ★★★
 ----------------------------------------------------------------------
@@ -842,6 +1538,264 @@ local function onSetHello(data)
     end
 
     log("═══════════════════════════════════════════════════")
+end
+
+-- ★★★ EVENT: Check Door Locks ★★★
+local function onCheckDoorLocks(data)
+    log("[DOOR DETECTION] Global script received CheckDoorLocks event")
+
+    local delay = data.delay or 1.9  -- Default to 2.5 seconds if not specified
+    log("[DOOR DETECTION] Delaying check by", delay, "seconds")
+
+    -- Use manual delay timer for global scripts since async:newSimulationTimer is not available
+    doorLockCheckDelay = delay
+end
+
+local function performDoorLockCheck()
+    log("[DOOR DETECTION] Performing delayed door lock check")
+
+    local player = world.players[1]
+    if not player then
+        log("[DOOR DETECTION] ERROR: Could not find player")
+        return
+    end
+
+    -- Player position and facing direction
+    local playerPos     = player.position
+    local playerForward = player.rotation:apply(util.vector3(0, 1, 0))
+
+    -- Detection parameters
+    local maxDistance = 400             -- units
+    local maxAngle    = math.rad(360)    -- 30-degree cone
+
+    local closestDoor     = nil
+    local closestDistance = math.huge
+    local closestAngle    = math.huge
+
+    ------------------------------------------------------------------
+    --  Iterate every door reference in the player’s current cell
+    ------------------------------------------------------------------
+    for _, door in ipairs(player.cell:getAll(types.Door)) do
+        -- Skip teleport doors (remove this line if you want them)
+        if not types.Door.isTeleport(door) then
+            local doorPos  = door.position
+            local distance = (doorPos - playerPos):length()
+
+            if distance <= maxDistance then
+                local toDoor = (doorPos - playerPos):normalize()
+                local angle  = math.acos(playerForward:dot(toDoor))
+
+                if angle <= maxAngle
+                   and (distance < closestDistance
+                     or (distance == closestDistance and angle < closestAngle)) then
+                    closestDoor     = door
+                    closestDistance = distance
+                    closestAngle    = angle
+                end
+            end
+        end
+    end
+
+    ------------------------------------------------------------------
+    --  Check lock level change for closest door
+    ------------------------------------------------------------------
+    if closestDoor then
+        local doorRecord = types.Door.record(closestDoor)
+        local doorId = closestDoor.id
+        local lastLockLevel = doorLastLockLevels[doorId]
+        local isLocked = types.Lockable.isLocked(closestDoor)
+        local rawLockLevel = types.Lockable.getLockLevel(closestDoor)
+        local currentLockLevel = isLocked and rawLockLevel or 0
+        local lockedDoorPos = closestDoor.position
+        log("[DOOR DETECTION] Door detected:")
+        log("  ID:         " .. tostring(closestDoor.id))
+        log("  Door Coords:         " .. tostring(lockedDoorPos))
+        log("  Name:       " .. (doorRecord and doorRecord.name or "unnamed door"))
+        log("  Locked:     " .. tostring(types.Lockable.isLocked(closestDoor)))
+        log("  Lock Level: " .. tostring(types.Lockable.getLockLevel(closestDoor)))
+        log("  State:      " .. tostring(types.Door.getDoorState(closestDoor)))
+        log("  Is Closed:  " .. tostring(types.Door.isClosed(closestDoor)))
+        log("  Is Open:    " .. tostring(types.Door.isOpen(closestDoor)))
+        log("  Is Teleport:" .. tostring(types.Door.isTeleport(closestDoor)))
+        log("  Distance:   " .. string.format("%.1f", closestDistance) .. " units")
+        log("  Angle:      " .. string.format("%.1f", math.deg(closestAngle)) .. " degrees")
+
+        -- Don't apply bounty immediately - the pending bounty system in door lock monitoring will handle it
+        -- after the NPC unlocks the door and checks LoS
+        log("[DOOR DETECTION] Lock state tracked - bounty will be handled by pending bounty system if needed")
+
+        -- Always update the last lockevel to the current one
+        doorLastLockLevels[doorId] = currentLockLevel
+        log("[DOOR DETECTION] Updated last lock level for door", doorId, "to", currentLockLevel)
+    else
+        log("[DOOR DETECTION] No door detected in range or facing direction")
+    end
+end
+
+-- ★★★ EVENT: Disband for Investigation ★★★
+local function onDisbandForInvestigation(data)
+    if not data or not data.npcId then return end
+
+    log("[DOOR INVESTIGATION] Disbanding guard for investigation:", data.npcId)
+
+    -- Find the NPC
+    local npc = findNPC(data.npcId)
+
+    if npc and npc:isValid() then
+        -- Send event to player script to stop path recording
+        local player = world.players[1]
+        if player then
+            player:sendEvent('AntiTheft_StopPathRecording', {npcId = data.npcId, position = npc.position})
+        end
+        -- Clear AI packages
+        npc:sendEvent('RemoveAIPackages')
+        log("✓ NPC", data.npcId, "completely disbanded for door investigation")
+    else
+        log("ERROR: NPC", data.npcId, "not found for disbanding")
+    end
+end
+
+-- ★★★ EVENT: Set Player Bounty (with door investigation) ★★★
+
+
+local function onSetPlayerBounty(data)
+    log("[GLOBAL] onSetPlayerBounty called")
+    if not data or not data.bountyAmount then
+        log("[GLOBAL] Error: Invalid bounty data received")
+        return
+    end
+    log("[GLOBAL] Bounty data received - Amount:", data.bountyAmount, "NPC:", data.npcId)
+
+    -- Check if there's a valid NPC - if not, skip bounty application
+    if not data.npcId then
+        log("[GLOBAL] No NPC ID provided - skipping bounty application")
+        return
+    end
+
+    local npc = findNPC(data.npcId)
+    if not npc or not npc:isValid() then
+        log("[GLOBAL] NPC not found or invalid - skipping bounty application")
+        return
+    end
+    log("[GLOBAL] NPC found and valid:", npc.id)
+
+    -- Get player from global context
+    local player = world.players[1]
+    if not player then
+        log("[GLOBAL] ERROR: Could not find player")
+        return
+    end
+
+    -- Get current bounty
+    local currentBounty = 0
+    if types.Player.getBounty then
+        currentBounty = types.Player.getBounty(player) or 0
+    elseif types.Player.getCrimeLevel then
+        currentBounty = types.Player.getCrimeLevel(player) or 0
+    end
+    log("[GLOBAL] Current player bounty:", currentBounty)
+    
+    local newBounty = currentBounty + data.bountyAmount
+    log("[GLOBAL] Setting new bounty to:", newBounty)
+
+    -- Set new bounty (only works in global scripts)
+    -- Try setBounty first as it is used in onApplyLockSpellBounty
+    if types.Player.setBounty then
+        types.Player.setBounty(player, newBounty)
+        log("[GLOBAL] Used types.Player.setBounty")
+    elseif types.Player.setCrimeLevel then
+        types.Player.setCrimeLevel(player, newBounty)
+        log("[GLOBAL] Used types.Player.setCrimeLevel")
+    else
+        log("[GLOBAL] ERROR: No bounty setting function found!")
+    end
+    
+    -- Verify if bounty was set
+    local verifiedBounty = 0
+    if types.Player.getBounty then
+        verifiedBounty = types.Player.getBounty(player)
+    elseif types.Player.getCrimeLevel then
+        verifiedBounty = types.Player.getCrimeLevel(player)
+    end
+    log("[GLOBAL] Verified bounty after setting:", verifiedBounty)
+
+    --── FIX : cache race+gender immediately
+    rememberRaceGender(data.npcId,data.npcRace,data.npcGender)
+    -- first reaction voice
+    if data.npcId then
+        local npc = findNPC(data.npcId)
+        if npc and npc:isValid() then playNpcVoiceResponse(npc,data.npcRace,data.npcGender) end
+    end
+
+    log("[GLOBAL] Applied bounty:", data.bountyAmount, "to player - new total:", newBounty)
+
+    -- Trigger door investigation if door position and NPC ID are provided
+    local doorPosition = nil
+    if data.doorPosition then
+        doorPosition = data.doorPosition
+    elseif data.doorX and data.doorY and data.doorZ then
+        doorPosition = util.vector3(data.doorX, data.doorY, data.doorZ)
+    end
+
+    if doorPosition and data.npcId then
+        -- Check if door is still locked before triggering investigation
+        local doorStillLocked = false
+        for _, door in ipairs(player.cell:getAll(types.Door)) do
+            if door.position == doorPosition then
+                doorStillLocked = types.Lockable.isLocked(door)
+                break
+            end
+        end
+
+        if doorStillLocked then
+            -- Check if the NPC is currently in combat with the player
+            local npcInCombat = npcsInCombatWithPlayer[data.npcId] or false
+            if npcInCombat then
+                log("[DOOR INVESTIGATION] NPC", data.npcId, "is in combat - skipping regular door investigation (combat unlock handles this)")
+            else
+                log("[DOOR INVESTIGATION] Door bounty applied - triggering NPC investigation")
+                log("[DOOR INVESTIGATION] Door position:", doorPosition)
+                log("[DOOR INVESTIGATION] NPC ID:", data.npcId)
+
+            local npc = findNPC(data.npcId)
+            if npc and npc:isValid() then
+                log("[DOOR INVESTIGATION] Sending NPC to door position for investigation:")
+                log("  Door position:         ", doorPosition)
+
+                -- Send event to player script to set investigation state
+                core.sendGlobalEvent('AntiTheft_StartDoorInvestigation', { npcId = data.npcId })
+
+                -- Send event to stop following before sending travel package
+                core.sendGlobalEvent('AntiTheft_StopFollowing', { npcId = data.npcId })
+
+                -- Send NPC to travel to door position
+                log("[DOOR INVESTIGATION] Sending NPC to door position")
+                npc:sendEvent('StartAIPackage', {
+                    type = 'Travel',
+                    destPosition = doorPosition,
+                    cancelOther = true
+                })
+
+                -- Track investigation - NPC will stop when entering 150-unit radius circle around door
+                doorInvestigation[data.npcId] = {
+                    doorPosition = doorPosition,
+                    startTime = core.getRealTime(),
+                    lastLog = core.getRealTime()
+                }
+
+                log("[DOOR INVESTIGATION] NPC", data.npcId, "sent to investigate door - will stop when within 150 units of door")
+            else
+                log("[DOOR INVESTIGATION] ERROR: NPC", data.npcId, "not found for door investigation")
+            end
+
+            log("[DOOR INVESTIGATION] Door investigation initiated")
+            end
+        else
+            log("[DOOR INVESTIGATION] Door is no longer locked - skipping investigation")
+        end
+    else
+        log("[DOOR INVESTIGATION] Door investigation not triggered - missing data: doorPosition:", data.doorPosition, "npcId:", data.npcId)
+    end
 end
 
 ----------------------------------------------------------------------
@@ -871,7 +1825,371 @@ local function onStartSearchTimer(data)
     log("Search timer started - NPC will return home at:", searchTimers[data.npcId].endTime)
 end
 
+-- Function to start combat door unlock sequence when NPC reaches the door
+local function startCombatDoorUnlockSequence(npcId, doorPosition, playerPosition)
+    log("[COMBAT DOOR UNLOCK SEQUENCE] Starting unlock sequence for NPC", npcId, "at door position:", doorPosition)
+
+    local npc = findNPC(npcId)
+    if not npc or not npc:isValid() then
+        log("[COMBAT DOOR UNLOCK SEQUENCE] NPC not found or invalid")
+        return
+    end
+
+    -- Play voice response when starting unlock sequence
+    playNpcVoiceResponse(npc)
+
+    -- Get NPC stats to determine unlock method
+    local Attr = types.Actor.stats.attributes
+    local function getAttr(actor, fn)
+        local stat = fn(actor)
+        return (stat and stat.modified) or 0
+    end
+
+    local strength = getAttr(npc, Attr.strength)
+    local agility = getAttr(npc, Attr.agility)
+    local intelligence = getAttr(npc, Attr.intelligence)
+
+    -- Determine highest stat
+    local highestStat = "strength"
+    local highestValue = strength
+    if agility > highestValue then
+        highestStat = "agility"
+        highestValue = agility
+    end
+    if intelligence > highestValue then
+        highestStat = "intelligence"
+        highestValue = intelligence
+    end
+
+    log("[COMBAT DOOR UNLOCK SEQUENCE] NPC", npcId, "highest stat:", highestStat, "(", highestValue, ")")
+
+    -- Find the door to unlock
+    local player = world.players[1]
+    local doorToUnlock = nil
+    if player then
+        for _, door in ipairs(player.cell:getAll(types.Door)) do
+            local dist = (door.position - doorPosition):length()
+            if dist < 1.0 then  -- within 1 unit tolerance
+                doorToUnlock = door
+                break
+            end
+        end
+    end
+
+    if doorToUnlock and types.Lockable.isLocked(doorToUnlock) then
+        -- Stop NPC movement and make them stand near the door
+        npc:sendEvent('RemoveAIPackages')
+        log("[COMBAT DOOR UNLOCK SEQUENCE] NPC", npcId, "stopped near door for lock opening sequence")
+
+        -- Get lock level and compute delay between 1 and 15 seconds
+        local lockLevel = types.Lockable.getLockLevel(doorToUnlock) or 15
+        if lockLevel < 1 then lockLevel = 1 end
+        if lockLevel > 100 then lockLevel = 100 end
+        local delayTime = 5 + ((lockLevel - 1) / 99) * (17.5 - 1)
+
+        -- Show before message based on highest stat
+        local npcName = "The NPC"
+        local record = types.NPC.record(npc)
+        if record and record.name then
+            npcName = record.name
+        end
+
+        local beforeMsg = nil
+        if highestStat == "strength" then
+            beforeMsg = string.format("%s is bashing the doors!", npcName)
+        elseif highestStat == "agility" then
+            beforeMsg = string.format("%s is picking the lock!", npcName)
+        elseif highestStat == "intelligence" then
+            beforeMsg = string.format("%s is magically opening the lock!", npcName)
+        end
+        if player and beforeMsg then
+            player:sendEvent('ShowMessage', { message = beforeMsg })
+        end
+
+        -- Sound helper functions
+        local function rndSlamFile() return ("sound/slam/slam"..math.random(1,7)..".wav") end
+        local function playRandomBash(ref)
+            local file=rndSlamFile()
+            log("[DOOR INVESTIGATION] Attempting to play bash sound: "..file.." on ref:", ref and ref.id or "nil")
+            if ref and ref:isValid() then
+                core.sound.playSoundFile3d(file,ref,
+                    {volume=20.7+math.random()*0.3,pitch=0.9+math.random()*0.3,loop=false})
+                log("[DOOR INVESTIGATION] Successfully initiated bash sound playback: "..file)
+            else
+                log("[DOOR INVESTIGATION] ERROR: Invalid door reference for bash sound - ref:", ref and ref.id or "nil", "isValid:", ref and ref:isValid() or "nil")
+            end
+        end
+        local function startBashLoop(ref,dur)
+            log("[DOOR INVESTIGATION] Starting bash loop with duration:", dur, "seconds on ref:", ref and ref.id or "nil")
+            local t0=core.getRealTime()
+            local bashCount = 0
+            local function step()
+                local elapsed = core.getRealTime()-t0
+                if elapsed >= dur or (ref and not types.Lockable.isLocked(ref)) then
+                    if elapsed >= dur then
+                        log("[DOOR INVESTIGATION] Bash loop completed after", bashCount, "sounds over", string.format("%.1f", elapsed), "seconds")
+                    else
+                        log("[DOOR INVESTIGATION] Bash loop stopped early - door unlocked after", bashCount, "sounds over", string.format("%.1f", elapsed), "seconds")
+                    end
+                    return
+                end
+                bashCount = bashCount + 1
+                log("[DOOR INVESTIGATION] Bash loop step", bashCount, "at", string.format("%.1f", elapsed), "seconds")
+                playRandomBash(ref)
+                async:newUnsavableSimulationTimer(0.9+math.random()*0.5,step)
+            end
+            step()
+        end
+        local function rndPickFile() return ("sound/pick/pickmove"..math.random(1,7)..".wav") end
+        local function playRandomPick(ref)
+            local file=rndPickFile()
+            log("[DOOR INVESTIGATION] Attempting to play pick sound: "..file.." on ref:", ref and ref.id or "nil")
+            if ref and ref:isValid() then
+                core.sound.playSoundFile3d(file,ref,
+                    {volume=20.7+math.random()*0.3,pitch=0.9+math.random()*0.3,loop=false})
+                log("[DOOR INVESTIGATION] Successfully initiated pick sound playback: "..file)
+            else
+                log("[DOOR INVESTIGATION] ERROR: Invalid door reference for pick sound - ref:", ref and ref.id or "nil", "isValid:", ref and ref:isValid() or "nil")
+            end
+        end
+        local function playRandomFailOrSuccess(ref)
+            local files = {"sound/pick/lock_fail.wav", "sound/pick/llock_success.wav", "Sound/Fx/trans/lever.wav"}
+            local file = files[math.random(#files)]
+            log("[DOOR INVESTIGATION] Attempting to play fail/success sound: "..file.." on ref:", ref and ref.id or "nil")
+            if ref and ref:isValid() then
+                core.sound.playSoundFile3d(file,ref,
+                    {volume=20.7+math.random()*0.3,pitch=0.9+math.random()*0.3,loop=false})
+                log("[DOOR INVESTIGATION] Successfully initiated fail/success sound playback: "..file)
+            else
+                log("[DOOR INVESTIGATION] ERROR: Invalid door reference for fail/success sound - ref:", ref and ref.id or "nil", "isValid:", ref and ref:isValid() or "nil")
+            end
+        end
+        local function startPickLoop(ref,dur)
+            log("[DOOR INVESTIGATION] Starting pick loop with duration:", dur, "seconds on ref:", ref and ref.id or "nil")
+            local t0=core.getRealTime()
+            local pickCount = 0
+            local cycleCount = 0
+            local function step()
+                local elapsed = core.getRealTime()-t0
+                if elapsed >= dur or (ref and not types.Lockable.isLocked(ref)) then
+                    if elapsed >= dur then
+                        log("[DOOR INVESTIGATION] Pick loop completed after", pickCount, "sounds over", string.format("%.1f", elapsed), "seconds")
+                    else
+                        log("[DOOR INVESTIGATION] Pick loop stopped early - door unlocked after", pickCount, "sounds over", string.format("%.1f", elapsed), "seconds")
+                    end
+                    return
+                end
+                pickCount = pickCount + 1
+                cycleCount = cycleCount + 1
+                log("[DOOR INVESTIGATION] Pick loop step", pickCount, "at", string.format("%.1f", elapsed), "seconds")
+                if cycleCount <= 3 or cycleCount <= 4 then
+                    playRandomPick(ref)
+                else
+                    playRandomFailOrSuccess(ref)
+                    cycleCount = 0
+                end
+                async:newUnsavableSimulationTimer(0.6+math.random()*0.5,step)
+            end
+            step()
+        end
+        local spellCastPairs = {
+            {"sound/Fx/magic/altrC.wav", "sound/Fx/magic/altrFAIL.wav"},
+            {"sound/Fx/magic/conjC.wav", "sound/Fx/magic/conjFAIL.wav"},
+            {"sound/Fx/magic/destC.wav", "sound/Fx/magic/destFAIL.wav"},
+            {"sound/Fx/magic/illuC.wav", "sound/Fx/magic/illuFAIL.wav"},
+            {"sound/Fx/magic/mystC.wav", "sound/Fx/magic/mystFAIL.wav"},
+            {"sound/Fx/magic/restC.wav", "sound/Fx/magic/restFAIL.wav"}
+        }
+
+        local function playRandomSpellCast(ref)
+            local pair = spellCastPairs[math.random(#spellCastPairs)]
+            local castSound = pair[1]
+            -- local failSound = pair[2] 
+
+            log("[DOOR INVESTIGATION] Attempting to play cast sound: "..castSound.." on ref:", ref and ref.id or "nil")
+            if ref and ref:isValid() then
+                core.sound.playSoundFile3d(castSound,ref,
+                    {volume=20.7+math.random()*0.3,pitch=0.9+math.random()*0.3,loop=false})
+                log("[DOOR INVESTIGATION] Successfully initiated cast sound playback: "..castSound)
+            else
+                log("[DOOR INVESTIGATION] ERROR: Invalid door reference for cast sound - ref:", ref and ref.id or "nil", "isValid:", ref and ref:isValid() or "nil")
+            end
+        end
+
+        local function startSpellCastLoop(ref,dur)
+            log("[DOOR INVESTIGATION] Starting spell cast loop with duration:", dur, "seconds on ref:", ref and ref.id or "nil")
+            local t0=core.getRealTime()
+            local castCount = 0
+            local function step()
+                local elapsed = core.getRealTime()-t0
+                if elapsed >= dur or (ref and not types.Lockable.isLocked(ref)) then
+                    if elapsed >= dur then
+                        log("[DOOR INVESTIGATION] Cast loop completed after", castCount, "sounds over", string.format("%.1f", elapsed), "seconds")
+                    else
+                        log("[DOOR INVESTIGATION] Cast loop stopped early - door unlocked after", castCount, "sounds over", string.format("%.1f", elapsed), "seconds")
+                    end
+                    return
+                end
+                castCount = castCount + 1
+                log("[DOOR INVESTIGATION] Cast loop step", castCount, "at", string.format("%.1f", elapsed), "seconds")
+                playRandomSpellCast(ref)
+                async:newUnsavableSimulationTimer(1.2+math.random()*0.5,step)
+            end
+            step()
+        end
+
+        -- Start the appropriate sound sequence based on highest stat
+        if highestStat == "strength" then
+            log("[COMBAT DOOR UNLOCK SEQUENCE] Starting strength-based bash sequence")
+            core.sound.playSoundFile3d("Sound/Fx/trans/drlatch_lokd.wav", doorToUnlock,
+                {volume=20.7+math.random()*0.3,pitch=0.9+math.random()*0.3,loop=false})
+            startBashLoop(doorToUnlock, delayTime)
+        elseif highestStat == "agility" then
+            log("[COMBAT DOOR UNLOCK SEQUENCE] Starting agility-based pick sequence")
+            core.sound.playSoundFile3d("Sound/Fx/trans/drlatch_lokd.wav", doorToUnlock,
+                {volume=20.7+math.random()*0.3,pitch=0.9+math.random()*0.3,loop=false})
+            async:newUnsavableSimulationTimer(1.0, function()
+                startPickLoop(doorToUnlock, delayTime)
+            end)
+        elseif highestStat == "intelligence" then
+            log("[COMBAT DOOR UNLOCK SEQUENCE] Intelligence-based unlocking sequence")
+            core.sound.playSoundFile3d("Sound/Fx/trans/drlatch_lokd.wav", doorToUnlock,
+            {volume=20.7+math.random()*0.3,pitch=0.9+math.random()*0.3,loop=false})
+            async:newUnsavableSimulationTimer(1.0, function()
+            startSpellCastLoop(doorToUnlock, delayTime)
+        end)
+        end
+
+        -- Schedule the final unlock and return to player
+        async:newUnsavableSimulationTimer(delayTime, function()
+            log("[COMBAT DOOR UNLOCK SEQUENCE] Lock opening sequence complete - unlocking door and sending NPC back")
+
+            -- Unlock the door
+            types.Lockable.unlock(doorToUnlock)
+            types.Door.activateDoor(doorToUnlock, true)
+
+            -- Reset door lock state to 0 so it can detect future locking
+            local doorId = doorToUnlock.id
+            doorLockStates[doorId] = 0
+            doorLastLockLevels[doorId] = 0
+            log("[COMBAT DOOR UNLOCK SEQUENCE] Reset door lock state for door", doorId, "to 0")
+
+            -- Play final sound based on highest stat
+            if highestStat == "strength" then
+                core.sound.playSoundFile3d("sound/slam/final/doorslam.wav", doorToUnlock,
+                    {volume=41.5+math.random()*0.3,pitch=0.9+math.random()*0.3,loop=false})
+            elseif highestStat == "agility" then
+                core.sound.playSoundFile3d("sound/fx/trans/chain_pul2.wav", doorToUnlock,
+                    {volume=20.7+math.random()*0.3,pitch=0.9+math.random()*0.3,loop=false})
+            elseif highestStat == "intelligence" then
+                core.sound.playSoundFile3d("sound/cast/castfinal.wav", doorToUnlock,
+                    {volume=20.7+math.random()*0.3,pitch=0.9+math.random()*0.3,loop=false})
+            end
+
+            log("[COMBAT DOOR UNLOCK SEQUENCE] Door unlocked successfully by NPC", npcId, "- checking for pending bounty")
+
+            -- Check if there's a pending bounty for this door
+            if pendingBountyChecks[doorId] then
+                local pendingBounty = pendingBountyChecks[doorId]
+                log("[COMBAT DOOR UNLOCK SEQUENCE] Found pending bounty check - sending LoS check request to player script")
+                
+                -- Send event to player script to START continuous LoS monitoring
+                local player = world.players[1]
+                if player then
+                    player:sendEvent('AntiTheft_StartLOSMonitoring', {
+                        npcId = pendingBounty.npcId,
+                        bountyAmount = pendingBounty.bountyAmount,
+                        doorPosition = pendingBounty.doorPosition,
+                        doorId = doorId
+                    })
+                    log("[COMBAT DOOR UNLOCK SEQUENCE] Continuous LoS monitoring started for NPC", pendingBounty.npcId)
+                end
+                
+                -- Clear the pending bounty
+                pendingBountyChecks[doorId] = nil
+            else
+                log("[COMBAT DOOR UNLOCK SEQUENCE] No pending bounty check for this door")
+            end
+
+            -- Re-acquire NPC to ensure validity after delay
+            local npc = findNPC(npcId)
+            if npc and npc:isValid() then
+                local player = world.players[1]
+                if player then
+                    log("[COMBAT DOOR UNLOCK SEQUENCE] Starting Combat package on NPC", npcId)
+                    npc:sendEvent('StartAIPackage', {
+                        type = 'Travel',
+                        destPosition = player.position,
+                        cancelOther = false
+                    })                
+                end
+            end
+
+        end)
+    else
+        log("[COMBAT DOOR UNLOCK SEQUENCE] Door not found or already unlocked")
+    end
+end
+
 log("=== GLOBAL SCRIPT LOADED SUCCESSFULLY v18.1 ===")
+local function onCancelSearchTimer(data)
+    if not (data and data.npcId) then return end
+    if searchTimers[data.npcId] then
+        searchTimers[data.npcId] = nil
+        log("Search timer cancelled for NPC", data.npcId, "by external event")
+    end
+end
+
+----------------------------------------------------------------------
+-- ★★★ EVENT: Cancel Return Home Process ★★★
+----------------------------------------------------------------------
+local function onCancelReturnHome(data)
+    if not data or not data.npcId then return end
+
+    log("═══════════════════════════════════════════════════")
+    log("CANCELING RETURN HOME PROCESS for NPC", data.npcId)
+    log("  Reason: NPC recruited while returning home")
+
+    -- Remove from pending returns if present
+    for i = #pendingReturns, 1, -1 do
+        if pendingReturns[i].npcId == data.npcId then
+            table.remove(pendingReturns, i)
+            log("  ✓ Removed from pending returns queue")
+        end
+    end
+
+    -- Cancel any search timers for this NPC
+    if searchTimers[data.npcId] then
+        searchTimers[data.npcId] = nil
+        log("  ✓ Cancelled search timer")
+    end
+
+    -- Remove from wandering tracker if present
+    if wanderingNPCs[data.npcId] then
+        wanderingNPCs[data.npcId] = nil
+        log("  ✓ Removed from wandering tracker")
+    end
+
+    -- Cancel any teleport timeouts
+    if teleportTimeouts[data.npcId] then
+        teleportTimeouts[data.npcId] = nil
+        log("  ✓ Cancelled teleport timeout")
+    end
+
+    -- Remove from pending teleports
+    if pendingTeleports[data.npcId] then
+        pendingTeleports[data.npcId] = nil
+        log("  ✓ Removed from pending teleports")
+    end
+
+    -- Remove from door investigation if present
+    if doorInvestigation[data.npcId] then
+        doorInvestigation[data.npcId] = nil
+        log("  ✓ Removed from door investigation")
+    end
+
+    log("═══════════════════════════════════════════════════")
+end
 
 ----------------------------------------------------------------------
 return {
@@ -888,7 +2206,99 @@ return {
         AntiTheft_TeleportHome = onTeleportHome,
         AntiTheft_RequestCleanup = onRequestCleanup,
         AntiTheft_LowerCellDisposition = onLowerCellDisposition,
-        AntiTheft_StartSearchTimer = onStartSearchTimer
+        AntiTheft_StartSearchTimer = onStartSearchTimer,
+        AntiTheft_ApplyLockSpellBounty = onApplyLockSpellBounty,
+        AntiTheft_DoorDetection = onDoorDetection,
+        AntiTheft_CheckDoorLocks = onCheckDoorLocks,
+        AntiTheft_SetPlayerBounty = onSetPlayerBounty,
+        AntiTheft_DisbandForInvestigation = onDisbandForInvestigation,
+        AntiTheft_CancelSearchTimer = onCancelSearchTimer,
+        AntiTheft_CancelReturnHome = onCancelReturnHome,
+        AntiTheft_UpdateDoorLockState = function(data)
+            if data and data.doorId and data.lockLevel then
+                doorLastLockLevels[data.doorId] = data.lockLevel
+                log("[DOOR DETECTION] Received explicit lock state update for door", data.doorId, "to", data.lockLevel)
+            end
+        end,
+        S3CombatTargetAdded = function(data)
+            if data and data.id then
+                npcsInCombatWithPlayer[data.id] = true
+                log("[COMBAT TRACKING] NPC", data.id, "entered combat with player")
+            end
+        end,
+        S3CombatTargetRemoved = function(data)
+            if data and data.id then
+                npcsInCombatWithPlayer[data.id] = nil
+                log("[COMBAT TRACKING] NPC", data.id, "left combat with player")
+            end
+        end,
+        AntiTheft_UnlockDoorDuringCombat = function(data)
+            if not data or not data.npcId then return end
+
+            log("[UNLOCK DOOR DURING COMBAT] Received unlock request for NPC", data.npcId, "- sending NPC to approach door first")
+
+            local npc = findNPC(data.npcId)
+            if npc and npc:isValid() then
+                -- Check if door is still locked before proceeding
+                local player = world.players[1]
+                local doorStillLocked = false
+                if player and data.doorPosition then
+                    for _, door in ipairs(player.cell:getAll(types.Door)) do
+                        local dist = (door.position - data.doorPosition):length()
+                        if dist < 1.0 and types.Lockable.isLocked(door) then
+                            doorStillLocked = true
+                            break
+                        end
+                    end
+                end
+
+                if doorStillLocked then
+                    log("[UNLOCK DOOR DURING COMBAT] Door still locked - sending NPC to approach within 110 units")
+
+                    -- Send NPC to travel to door position (will stop when within 110 units in onUpdate)
+                    npc:sendEvent('RemoveAIPackages')
+                    npc:sendEvent('StartAIPackage', {
+                        type = 'Travel',
+                        destPosition = data.doorPosition,
+                        cancelOther = true
+                    })
+
+                    -- Add to combat door investigation tracking
+                    combatDoorInvestigation[data.npcId] = {
+                        doorPosition = data.doorPosition,
+                        playerPosition = data.playerPosition,
+                        startTime = core.getRealTime(),
+                        lastLog = core.getRealTime()
+                    }
+                    
+                    -- Remove from regular door investigation if present (prevent duplicate processing)
+                    if doorInvestigation[data.npcId] then
+                        doorInvestigation[data.npcId] = nil
+                        log("[UNLOCK DOOR DURING COMBAT] Removed NPC", data.npcId, "from regular door investigation to prevent duplicate processing")
+                    end
+
+                    log("[UNLOCK DOOR DURING COMBAT] NPC", data.npcId, "sent to approach door - will start unlock sequence when within 110 units")
+                else
+                    log("[UNLOCK DOOR DURING COMBAT] Door no longer locked - skipping unlock request")
+                end
+            else
+                log("[UNLOCK DOOR DURING COMBAT] NPC not found or invalid")
+            end
+        end,
+        AntiTheft_RegisterFollowingNPC = function(data)
+            if data and data.npcId then
+                if not followingNPCs[data.npcId] then
+                    followingNPCs[data.npcId] = true
+                    log("[GLOBAL] Registered following NPC", data.npcId)
+                end
+            end
+        end,
+        AntiTheft_UnregisterFollowingNPC = function(data)
+            if data and data.npcId then
+                followingNPCs[data.npcId] = nil
+                log("[GLOBAL] Unregistered following NPC", data.npcId)
+            end
+        end,
     },
     engineHandlers = {
         onUpdate = function(dt)
@@ -1053,6 +2463,15 @@ return {
                 end
             end
 
+            -- Process door lock check delay timer
+            if doorLockCheckDelay > 0 then
+                doorLockCheckDelay = doorLockCheckDelay - dt
+                if doorLockCheckDelay <= 0 then
+                    performDoorLockCheck()
+                    doorLockCheckDelay = 0
+                end
+            end
+
             -- Process 5-minute teleport timeouts
             for npcId, timeoutData in pairs(teleportTimeouts) do
                 if currentTime >= timeoutData.timeoutTime then
@@ -1065,6 +2484,674 @@ return {
                     end
                     teleportTimeouts[npcId] = nil
                 end
+            end
+
+            ------------------------------------------------------------------
+            -- bash-sound helpers (re-usable) -------------------------------------
+            ------------------------------------------------------------------
+            local function rndSlamFile() return ("sound/slam/slam"..math.random(1,7)..".wav") end
+            local function playRandomBash(ref)
+                local file=rndSlamFile()
+                log("[DOOR INVESTIGATION] Attempting to play bash sound: "..file.." on ref:", ref and ref.id or "nil")
+                if ref and ref:isValid() then
+                    core.sound.playSoundFile3d(file,ref,
+                        {volume=20.7+math.random()*0.3,pitch=0.9+math.random()*0.3,loop=false})
+                    log("[DOOR INVESTIGATION] Successfully initiated bash sound playback: "..file)
+                else
+                    log("[DOOR INVESTIGATION] ERROR: Invalid door reference for bash sound - ref:", ref and ref.id or "nil", "isValid:", ref and ref:isValid() or "nil")
+                end
+            end
+            local function startBashLoop(ref,dur)
+                log("[DOOR INVESTIGATION] Starting bash loop with duration:", dur, "seconds on ref:", ref and ref.id or "nil")
+                local t0=core.getRealTime()
+                local bashCount = 0
+                local function step()
+                    local elapsed = core.getRealTime()-t0
+                    if elapsed >= dur or (ref and not types.Lockable.isLocked(ref)) then
+                        if elapsed >= dur then
+                            log("[DOOR INVESTIGATION] Bash loop completed after", bashCount, "sounds over", string.format("%.1f", elapsed), "seconds")
+                        else
+                            log("[DOOR INVESTIGATION] Bash loop stopped early - door unlocked after", bashCount, "sounds over", string.format("%.1f", elapsed), "seconds")
+                        end
+                        return
+                    end
+                    bashCount = bashCount + 1
+                    log("[DOOR INVESTIGATION] Bash loop step", bashCount, "at", string.format("%.1f", elapsed), "seconds")
+                    playRandomBash(ref)
+                    async:newUnsavableSimulationTimer(0.9+math.random()*0.5,step)
+                end
+                step()
+            end
+            local function rndPickFile() return ("sound/pick/pickmove"..math.random(1,7)..".wav") end
+            local function playRandomPick(ref)
+                local file=rndPickFile()
+                log("[DOOR INVESTIGATION] Attempting to play pick sound: "..file.." on ref:", ref and ref.id or "nil")
+                if ref and ref:isValid() then
+                    core.sound.playSoundFile3d(file,ref,
+                        {volume=20.7+math.random()*0.3,pitch=0.9+math.random()*0.3,loop=false})
+                    log("[DOOR INVESTIGATION] Successfully initiated pick sound playback: "..file)
+                else
+                    log("[DOOR INVESTIGATION] ERROR: Invalid door reference for pick sound - ref:", ref and ref.id or "nil", "isValid:", ref and ref:isValid() or "nil")
+                end
+            end
+            local function playRandomFailOrSuccess(ref)
+                local files = {"sound/pick/lock_fail.wav", "sound/pick/llock_success.wav", "Sound/Fx/trans/lever.wav"}
+                local file = files[math.random(#files)]
+                log("[DOOR INVESTIGATION] Attempting to play fail/success sound: "..file.." on ref:", ref and ref.id or "nil")
+                if ref and ref:isValid() then
+                    core.sound.playSoundFile3d(file,ref,
+                        {volume=20.7+math.random()*0.3,pitch=0.9+math.random()*0.3,loop=false})
+                    log("[DOOR INVESTIGATION] Successfully initiated fail/success sound playback: "..file)
+                else
+                    log("[DOOR INVESTIGATION] ERROR: Invalid door reference for fail/success sound - ref:", ref and ref.id or "nil", "isValid:", ref and ref:isValid() or "nil")
+                end
+            end
+            local function startPickLoop(ref,dur)
+                log("[DOOR INVESTIGATION] Starting pick loop with duration:", dur, "seconds on ref:", ref and ref.id or "nil")
+                local t0=core.getRealTime()
+                local pickCount = 0
+                local cycleCount = 0
+                local function step()
+                    local elapsed = core.getRealTime()-t0
+                    if elapsed >= dur or (ref and not types.Lockable.isLocked(ref)) then
+                        if elapsed >= dur then
+                            log("[DOOR INVESTIGATION] Pick loop completed after", pickCount, "sounds over", string.format("%.1f", elapsed), "seconds")
+                        else
+                            log("[DOOR INVESTIGATION] Pick loop stopped early - door unlocked after", pickCount, "sounds over", string.format("%.1f", elapsed), "seconds")
+                        end
+                        return
+                    end
+                    pickCount = pickCount + 1
+                    cycleCount = cycleCount + 1
+                    log("[DOOR INVESTIGATION] Pick loop step", pickCount, "at", string.format("%.1f", elapsed), "seconds")
+                    if cycleCount <= 3 or cycleCount <= 4 then
+                        playRandomPick(ref)
+                    else
+                        playRandomFailOrSuccess(ref)
+                        cycleCount = 0
+                    end
+                    async:newUnsavableSimulationTimer(0.6+math.random()*0.5,step)
+                end
+                step()
+            end
+            
+            -- Spell casting functions for intelligence-based unlocking
+            local spellCastPairs = {
+                {"sound/Fx/magic/altrC.wav", "sound/Fx/magic/altrFAIL.wav"},
+                {"sound/Fx/magic/conjC.wav", "sound/Fx/magic/conjFAIL.wav"},
+                {"sound/Fx/magic/destC.wav", "sound/Fx/magic/destFAIL.wav"},
+                {"sound/Fx/magic/illuC.wav", "sound/Fx/magic/illuFAIL.wav"},
+                {"sound/Fx/magic/mystC.wav", "sound/Fx/magic/mystFAIL.wav"},
+                {"sound/Fx/magic/restC.wav", "sound/Fx/magic/restFAIL.wav"}
+            }
+            
+            local function playRandomSpellCast(ref)
+                local pair = spellCastPairs[math.random(#spellCastPairs)]
+                local castSound = pair[1]
+                local failSound = pair[2]
+                
+                log("[DOOR INVESTIGATION] Attempting to play spell cast sounds on ref:", ref and ref.id or "nil")
+                if ref and ref:isValid() then
+                    -- Play cast sound first
+                    core.sound.playSoundFile3d(castSound, ref,
+                        {volume=20.7+math.random()*0.3, pitch=0.9+math.random()*0.3, loop=false})
+                    log("[DOOR INVESTIGATION] Successfully initiated spell cast sound: "..castSound)
+                    
+                    -- Play fail sound shortly after
+                    async:newUnsavableSimulationTimer(0.4, function()
+                        if ref and ref:isValid() then
+                            core.sound.playSoundFile3d(failSound, ref,
+                                {volume=20.7+math.random()*0.3, pitch=0.9+math.random()*0.3, loop=false})
+                            log("[DOOR INVESTIGATION] Successfully initiated spell fail sound: "..failSound)
+                        end
+                    end)
+                else
+                    log("[DOOR INVESTIGATION] ERROR: Invalid door reference for spell sounds - ref:", ref and ref.id or "nil", "isValid:", ref and ref:isValid() or "nil")
+                end
+            end
+            
+            local function startSpellCastLoop(ref, dur)
+                log("[DOOR INVESTIGATION] Starting spell cast loop with duration:", dur, "seconds on ref:", ref and ref.id or "nil")
+                local t0 = core.getRealTime()
+                local castCount = 0
+                local function step()
+                    local elapsed = core.getRealTime() - t0
+                    if elapsed >= dur or (ref and not types.Lockable.isLocked(ref)) then
+                        if elapsed >= dur then
+                            log("[DOOR INVESTIGATION] Spell cast loop completed after", castCount, "casts over", string.format("%.1f", elapsed), "seconds")
+                        else
+                            log("[DOOR INVESTIGATION] Spell cast loop stopped early - door unlocked after", castCount, "casts over", string.format("%.1f", elapsed), "seconds")
+                        end
+                        return
+                    end
+                    castCount = castCount + 1
+                    log("[DOOR INVESTIGATION] Spell cast loop step", castCount, "at", string.format("%.1f", elapsed), "seconds")
+                    playRandomSpellCast(ref)
+                    -- Spell casting has longer intervals than picking/bashing
+                    async:newUnsavableSimulationTimer(1.2 + math.random() * 0.5, step)
+                end
+                step()
+            end
+
+            -- Process combat door lock monitoring (moved from player script)
+            if monitorDoorLocksDuringCombat then
+                local player = world.players[1]
+                if player and player.cell and not player.cell.isExterior then
+                    local doorsLocked = 0
+                    local lockedDoorPos = nil
+
+                    -- Check all doors in player's cell
+                    for _, door in ipairs(player.cell:getAll(types.Door)) do
+                        if door then
+                            local doorId = door.id
+                            local isLocked = types.Lockable.isLocked(door)
+                            local rawLockLevel = types.Lockable.getLockLevel(door)
+                            local currentLockLevel = isLocked and rawLockLevel or 0
+                            local lastLockLevel = combatDoorStates[doorId]
+
+                            -- Initialize lock level if not tracked yet
+                            if lastLockLevel == nil then
+                                combatDoorStates[doorId] = currentLockLevel
+                                lastLockLevel = currentLockLevel
+                            end
+
+                            -- Check if lock level increased (door became more locked)
+                            if currentLockLevel > lastLockLevel then
+                                doorsLocked = doorsLocked + 1
+                                lockedDoorPos = door.position
+                                log("[COMBAT DOOR LOCK] Door", doorId, "lock level increased from", lastLockLevel, "to", currentLockLevel, "during combat - triggering unlock")
+
+                                -- Find closest NPC to player
+                                local closestNPC = nil
+                                local closestDist = math.huge
+                                for _, actor in ipairs(world.activeActors) do
+                                    if actor and actor.type == types.NPC and actor:isValid() and not types.Actor.isDead(actor) and actor.cell == player.cell then
+                                        local dist = (actor.position - player.position):length()
+                                        if dist < closestDist then
+                                            closestDist = dist
+                                            closestNPC = actor
+                                        end
+                                    end
+                                end
+
+                                if closestNPC then
+                                    -- Verify NPC is actually in combat with the player using our tracking table
+                                    local npcInCombatWithPlayer = npcsInCombatWithPlayer[closestNPC.id] or false
+                                    
+                                    if npcInCombatWithPlayer then
+                                        log("[COMBAT DOOR LOCK] NPC", closestNPC.id, "is in combat with player - sending unlock request at distance", math.floor(closestDist))
+                                        -- Send global event to trigger door unlocking
+                                        core.sendGlobalEvent('AntiTheft_UnlockDoorDuringCombat', {
+                                            npcId = closestNPC.id,
+                                            doorPosition = lockedDoorPos,
+                                            playerPosition = player.position
+                                        })
+                                    else
+                                        log("[COMBAT DOOR LOCK] NPC", closestNPC.id, "not in combat with player - skipping unlock request")
+                                    end
+                                else
+                                    log("[COMBAT DOOR LOCK] No valid NPCs found to unlock door")
+                                end
+                            end
+
+                            -- Update door lock level
+                            combatDoorStates[doorId] = currentLockLevel
+                        end
+                    end
+
+                    if doorsLocked == 0 then
+                        -- No doors were locked, clear the monitoring flag
+                        monitorDoorLocksDuringCombat = false
+                        combatDoorStates = {}
+                        log("[COMBAT DOOR LOCK] No doors locked during combat - clearing monitoring")
+                    end
+                end
+            end
+
+            -- Process door lock level monitoring (moved from player script)
+            local player = world.players[1]
+            if player and player.cell and not player.cell.isExterior then
+                -- Helper function to count table elements
+                local function tableSize(t)
+                    local count = 0
+                    for _ in pairs(t) do count = count + 1 end
+                    return count
+                end
+
+                -- Initialize door lock states if not already done
+                if not doorLockStates or tableSize(doorLockStates) == 0 then
+                    doorLockStates = {}
+                    for _, door in ipairs(player.cell:getAll(types.Door)) do
+                        if door then
+                            local doorId = door.id
+                            local isLocked = types.Lockable.isLocked(door)
+                            local rawLockLevel = types.Lockable.getLockLevel(door)
+                            local lockLevel = isLocked and rawLockLevel or 0
+                            doorLockStates[doorId] = lockLevel
+                        end
+                    end
+                    log("[DOOR LOCK MONITORING] Initialized door lock states for", tableSize(doorLockStates), "doors")
+                end
+
+                -- Check for door lock level changes
+                local lockLevelChanged = false
+                local changedDoorId = nil
+                local newLockLevel = nil
+
+                for _, door in ipairs(player.cell:getAll(types.Door)) do
+                    if door then
+                        local doorId = door.id
+                        local isLocked = types.Lockable.isLocked(door)
+                        local rawLockLevel = types.Lockable.getLockLevel(door)
+                        local currentLockLevel = isLocked and rawLockLevel or 0
+                        local previousLockLevel = doorLockStates[doorId] or 0
+
+                        if currentLockLevel ~= previousLockLevel then
+                            lockLevelChanged = true
+                            changedDoorId = doorId
+                            newLockLevel = currentLockLevel
+                            log("[DOOR LOCK MONITORING] Door", doorId, "lock level changed from", previousLockLevel, "to", currentLockLevel)
+
+                            -- Update stored lock level
+                            doorLockStates[doorId] = currentLockLevel
+                        end
+                    end
+                end
+
+                -- If a door lock level changed and it's now locked, trigger detection pulse
+                if lockLevelChanged and newLockLevel and newLockLevel > 0 then
+                    log("[DOOR LOCK MONITORING] Door lock level increased - processing unlock sequence")
+                    
+                    -- First check if there's a following NPC - they take priority
+                    local closestNPC = nil
+                    local closestDist = math.huge
+                    local foundFollowingNPC = false
+                    
+                    -- Check following NPCs first
+                    for npcId, _ in pairs(followingNPCs) do
+                        local npc = findNPC(npcId)
+                        if npc and npc:isValid() and not types.Actor.isDead(npc) and npc.cell == player.cell then
+                            local dist = (npc.position - player.position):length()
+                            if dist <= 1000 then
+                                closestNPC = npc
+                                closestDist = dist
+                                foundFollowingNPC = true
+                                log("[DOOR LOCK MONITORING] Found following NPC", npcId, "at distance", math.floor(dist), "- using this NPC for unlock")
+                                break  -- Use the first following NPC found
+                            end
+                        end
+                    end
+                    
+                    -- If no following NPC found, find closest NPC (excluding companions)
+                    if not foundFollowingNPC then
+                        for _, actor in ipairs(world.activeActors) do
+                            if actor and actor.type == types.NPC and actor:isValid() and not types.Actor.isDead(actor) and actor.cell == player.cell then
+                                -- Skip companions
+                                if not companionDetection.isCompanion(actor, player, {}) then
+                                    local dist = (actor.position - player.position):length()
+                                    if dist <= 1000 and dist < closestDist then
+                                        closestDist = dist
+                                        closestNPC = actor
+                                    end
+                                else
+                                    log("[DOOR LOCK MONITORING] Skipping companion NPC:", actor.id)
+                                end
+                            end
+                        end
+                    end
+
+                    if closestNPC then
+                        log("[DOOR LOCK MONITORING] Found closest NPC", closestNPC.id, "at distance", math.floor(closestDist), "- checking for locked doors")
+
+                        -- Find the locked door that triggered this
+                        local lockedDoorFound = false
+                        local lockedDoorPos = nil
+                        for _, door in ipairs(player.cell:getAll(types.Door)) do
+                            if door and door.id == changedDoorId then
+                                local doorDist = (door.position - closestNPC.position):length()
+                                if doorDist <= 1000 then  -- Check if door is within 1000 units of the NPC
+                                    local isLocked = types.Lockable.isLocked(door)
+                                    
+                                    -- Check if door is opening or already open - if so, skip entirely
+                                    local doorState = types.Door.getDoorState(door)
+                                    local isOpen = types.Door.isOpen(door)
+                                    
+                                    if doorState == types.Door.STATE.Opening then
+                                        log("[DOOR LOCK MONITORING] Door is currently opening - NPC will ignore it")
+                                        break
+                                    end
+                                    
+                                    if isOpen then
+                                        log("[DOOR LOCK MONITORING] Door is fully open - NPC will ignore it")
+                                        break
+                                    end
+                                    
+                                    if isLocked then
+                                        lockedDoorFound = true
+                                        lockedDoorPos = door.position
+                                        log("[DOOR LOCK MONITORING] Found locked door near NPC at distance", math.floor(doorDist))
+                                        
+                                        -- Check if we should skip bounty application
+                                        local skipBounty = false
+                                        local skipReason = ""
+                                        
+                                        -- Skip bounty if NPC is in combat door investigation
+                                        if combatDoorInvestigation[closestNPC.id] then
+                                            skipBounty = true
+                                            skipReason = "NPC is in combat door unlock sequence"
+                                        end
+                                        
+                                        -- Skip bounty if we're in a hostile cell (cells with only enemies or slaves+enemies)
+                                        if player.cell then
+                                            -- Build nearby table for classification functions
+                                            local nearby = { actors = player.cell:getAll(types.NPC) }
+                                            
+                                            local isOnlyEnemies = classification.shouldDisableCellForOnlyEnemies(nearby, types)
+                                            local isSlavesAndEnemies = classification.shouldDisableCellForSlavesAndEnemies(nearby, types)
+                                            
+                                            if isOnlyEnemies or isSlavesAndEnemies then
+                                                skipBounty = true
+                                                if isOnlyEnemies then
+                                                    skipReason = "Cell contains only enemies (" .. (player.cell.name or "unknown") .. ")"
+                                                else
+                                                    skipReason = "Cell contains slaves and enemies (" .. (player.cell.name or "unknown") .. ")"
+                                                end
+                                            end
+                                        end
+                                        
+                                        if skipBounty then
+                                            log("[DOOR LOCK MONITORING] Skipping bounty application - " .. skipReason)
+                                        else
+                                            -- Store pending bounty to be checked after door unlocks
+                                            log("[DOOR LOCK MONITORING] Storing pending bounty check (150 gold) - will verify LoS after unlock")
+                                            
+                                            pendingBountyChecks[changedDoorId] = {
+                                                npcId = closestNPC.id,
+                                                bountyAmount = 150,
+                                                doorPosition = lockedDoorPos,
+                                                timestamp = core.getRealTime()
+                                            }
+                                            log("[DOOR LOCK MONITORING] Pending bounty stored for door", changedDoorId, "with NPC", closestNPC.id)
+                                        end
+                                        
+                                        -- Send global event to trigger door unlocking (always send, regardless of bounty)
+                                        core.sendGlobalEvent('AntiTheft_UnlockDoorDuringCombat', {
+                                            npcId = closestNPC.id,
+                                            doorPosition = lockedDoorPos,
+                                            playerPosition = player.position
+                                        })
+                                        break
+                                    end
+                                end
+                            end
+                        end
+
+                        if lockedDoorFound then
+                            -- Logic already handled inside loop for bounty/event, but we can log here
+                            log("[DOOR LOCK MONITORING] Door lock handled successfully")
+                            
+                            -- Clear door lock states if needed or just proceed
+                            -- The original code had some logic here but we moved the event sending inside the loop for immediate action
+                            -- We can keep the else block for logging failure
+                        else
+                            log("[DOOR LOCK MONITORING] Locked door not found within range of closest NPC")
+                        end
+                    else
+                        log("[DOOR LOCK MONITORING] No NPCs found within 1000 units")
+                    end
+                end
+        end
+
+           
+            -- Process combat door investigations
+            for npcId, investigationData in pairs(combatDoorInvestigation) do
+                local npc = findNPC(npcId)
+                if npc and npc:isValid() then
+                    local distanceToDoor = (npc.position - investigationData.doorPosition):length()
+                    local timeSinceStart = currentTime - investigationData.startTime
+
+                    -- Log progress periodically
+                    if currentTime - investigationData.lastLog >= 1.0 then
+                        log("[COMBAT DOOR INVESTIGATION] NPC", npcId, "distance to door:", string.format("%.1f", distanceToDoor), "units, time elapsed:", string.format("%.1f", timeSinceStart), "seconds")
+                        investigationData.lastLog = currentTime
+                    end
+
+                    -- Check if NPC reached the door (within 115 units)
+                    if distanceToDoor <= 155 then
+                        log("[COMBAT DOOR INVESTIGATION] NPC", npcId, "reached door - starting unlock sequence")
+                        startCombatDoorUnlockSequence(npcId, investigationData.doorPosition, investigationData.playerPosition)
+                        combatDoorInvestigation[npcId] = nil
+                    end
+                else
+                    log("[COMBAT DOOR INVESTIGATION] NPC", npcId, "no longer valid - removing from investigation tracking")
+                    combatDoorInvestigation[npcId] = nil
+                end
+            end
+
+            -- Process door investigations
+            for npcId, investigationData in pairs(doorInvestigation) do
+                -- Skip if NPC is being handled by combat investigation
+                if combatDoorInvestigation[npcId] then
+                    log("[DOOR INVESTIGATION] Skipping NPC", npcId, "- being handled by combat investigation")
+                    doorInvestigation[npcId] = nil
+                    goto continue
+                end
+                
+                local npc = findNPC(npcId)
+                if npc and npc:isValid() then
+                    local distanceToDoor = (npc.position - investigationData.doorPosition):length()
+                    local timeSinceStart = currentTime - investigationData.startTime
+
+                    -- Log progress periodically
+                    if currentTime - investigationData.lastLog >= 1.0 then
+                        log("[DOOR INVESTIGATION] NPC", npcId, "distance to door:", string.format("%.1f", distanceToDoor), "units, time elapsed:", string.format("%.1f", timeSinceStart), "seconds")
+                        investigationData.lastLog = currentTime
+                    end
+
+                    -- Check if NPC reached the investigation area (within 100 units of door)
+                    if distanceToDoor <= 115 then
+                        -- Check if we haven't already started the waiting period
+                        if not investigationData.waitingStarted then
+                            log("[DOOR INVESTIGATION] NPC", npcId, "entered investigation area (within 100 units of door) - stopping movement and starting 15-second wait")
+
+                            -- Immediately stop the NPC by removing AI packages
+                            npc:sendEvent('RemoveAIPackages')
+                            log("[DOOR INVESTIGATION] Removed AI packages from NPC", npcId, "- NPC should now be standing still")
+
+                            -- Directly disband the NPC
+                            onDisbandForInvestigation({npcId = npcId})
+
+                            -- Mark that waiting has started
+                            investigationData.waitingStarted = true
+                            investigationData.waitStartTime = currentTime
+
+                            local npc = findNPC(npcId)
+                            if npc and npc:isValid() then
+                                -- Replicate getAttr function for stats retrieval
+                                local Attr = types.Actor.stats.attributes
+                                local function getAttr(actor, fn)
+                                    local stat = fn(actor)
+                                    return (stat and stat.modified) or 0
+                                end
+
+                                -- Get NPC stats
+                                local strength = getAttr(npc, Attr.strength)
+                                local agility = getAttr(npc, Attr.agility)
+                                local intelligence = getAttr(npc, Attr.intelligence)
+
+                                -- Determine highest stat and messages
+                                local highestStat = "strength"
+                                local highestValue = strength
+                                if agility > highestValue then
+                                    highestStat = "agility"
+                                    highestValue = agility
+                                end
+                                if intelligence > highestValue then
+                                    highestStat = "intelligence"
+                                    highestValue = intelligence
+                                end
+
+                                -- Get NPC name
+                                local npcName = "The NPC"
+                                local record = types.NPC.record(npc)
+                                if record and record.name then
+                                    npcName = record.name
+                                end
+
+                                -- Get lock level and compute delay between 1 and 15 seconds
+                                local player = world.players[1]
+                                local doorPosition = doorInvestigation[npcId].doorPosition
+                                local lockLevel = 15 -- default max for safety
+                                if player then
+                                    for _, door in ipairs(player.cell:getAll(types.Door)) do
+                                        if door.position == doorPosition then
+                                            lockLevel = types.Lockable.getLockLevel(door) or 15
+                                            break
+                                        end
+                                    end
+                                end
+                                if lockLevel < 1 then lockLevel = 1 end
+                                if lockLevel > 100 then lockLevel = 100 end
+                                local delayTime = 5 + ((lockLevel - 1) / 99) * (17.5 - 1)
+
+                                -- Show before message based on highest stat
+                                local beforeMsg = nil
+                                if highestStat == "strength" then
+                                    beforeMsg = string.format("%s is bashing the doors!", npcName)
+                                elseif highestStat == "agility" then
+                                    beforeMsg = string.format("%s is picking the lock!", npcName)
+                                elseif highestStat == "intelligence" then
+                                    beforeMsg = string.format("%s is magically opening the lock!", npcName)
+                                end
+                                if player and beforeMsg then
+                                    player:sendEvent('ShowMessage', { message = beforeMsg })
+                                end
+
+                                -- voice + bash if STR
+                                local doorRef
+                                for _,d in ipairs(player.cell:getAll(types.Door)) do
+                                    -- Use distance check instead of exact equality for floating point precision
+                                    local dist = (d.position - investigationData.doorPosition):length()
+                                    if dist < 1.0 then  -- within 1 unit tolerance
+                                        doorRef = d
+                                        log("[DOOR INVESTIGATION] Found door reference for bash sounds - distance:", string.format("%.3f", dist))
+                                        break
+                                    end
+                                end
+
+                                log("[DOOR INVESTIGATION] Door reference search - highestStat:", highestStat, "doorRef found:", doorRef ~= nil)
+                                if doorRef then
+                                    log("[DOOR INVESTIGATION] Door reference details - position:", doorRef.position, "investigation position:", investigationData.doorPosition)
+                                end
+
+                                if highestStat=="strength" and doorRef then
+                                    log("[DOOR INVESTIGATION] Starting voice and bash loop for strength-based NPC")
+                                    core.sound.playSoundFile3d("Sound/Fx/trans/drlatch_lokd.wav", doorRef,
+                                    {volume=20.7+math.random()*0.3,pitch=0.9+math.random()*0.3,loop=false})                      -- uses cached race/gender
+                                    startBashLoop(doorRef,delayTime)                 -- immediate loop
+                                elseif highestStat=="agility" and doorRef then
+                                    log("[DOOR INVESTIGATION] Starting voice and pick loop for agility-based NPC")
+                                    -- Play initial sound first
+                                    core.sound.playSoundFile3d("Sound/Fx/trans/drlatch_lokd.wav", doorRef,
+                                        {volume=20.7+math.random()*0.3,pitch=0.9+math.random()*0.3,loop=false})
+                                    -- Wait for initial sound to play before starting pick loop
+                                    async:newUnsavableSimulationTimer(1.0, function()
+                                        startPickLoop(doorRef,delayTime)
+                                    end)
+                                elseif highestStat=="intelligence" and doorRef then
+                                    log("[DOOR INVESTIGATION] Starting spell cast loop for intelligence-based NPC")
+                                    -- Play initial sound first
+                                    core.sound.playSoundFile3d("Sound/Fx/trans/drlatch_lokd.wav", doorRef,
+                                        {volume=20.7+math.random()*0.3,pitch=0.9+math.random()*0.3,loop=false})
+                                    -- Wait for initial sound to play before starting spell cast loop
+                                    async:newUnsavableSimulationTimer(1.0, function()
+                                        startSpellCastLoop(doorRef,delayTime)
+                                    end)
+                                else
+                                    log("[DOOR INVESTIGATION] Skipping voice/bash - highestStat:", highestStat, "doorRef exists:", doorRef ~= nil)
+                                end
+
+                                -- schedule unlock/finish exactly as before ---------------
+                                async:newUnsavableSimulationTimer(delayTime,function()
+                                    -- (content from original async body BUT
+                                    --  remove the old duplicate voice/bash section)
+                                    local player=world.players[1]
+                                    npc:sendEvent('RemoveAIPackages')
+                                    npc:sendEvent('StartAIPackage',{type='Follow',target=player,cancelOther=true})
+                                    -- unlock door & finish
+                                    for _,d in ipairs(player.cell:getAll(types.Door)) do
+                                        if d.position==investigationData.doorPosition then
+                                            types.Lockable.unlock(d); types.Door.activateDoor(d,true);
+                                            -- Play final door slam sound for strength-based unlocking
+                                            if highestStat == "strength" then
+                                                log("[DOOR INVESTIGATION] Playing final door slam sound for strength-based unlock")
+                                                core.sound.playSoundFile3d("sound/slam/final/doorslam.wav", d,
+                                                {volume=41.5+math.random()*0.3,pitch=0.9+math.random()*0.3,loop=false})
+                                                npc:sendEvent('StartAIPackage', {
+                                                    type = 'Travel',
+                                                    destPosition = player.position,
+                                                    cancelOther = true
+                                                       })
+                                            elseif highestStat == "agility" then
+                                                log("[DOOR INVESTIGATION] Playing final chain pull sound for agility-based unlock")
+                                                core.sound.playSoundFile3d("sound/fx/trans/chain_pul2.wav", d,
+                                                {volume=20.7+math.random()*0.3,pitch=0.9+math.random()*0.3,loop=false})
+                                                npc:sendEvent('StartAIPackage', {
+                                                    type = 'Travel',
+                                                    destPosition = player.position,
+                                                    cancelOther = true
+                                                       })
+                                            elseif highestStat == "intelligence" then
+                                                log("[DOOR INVESTIGATION] Playing final spell cast sound for intelligence-based unlock")
+                                                -- Play alteration cast sound first
+                                                core.sound.playSoundFile3d("sound/Fx/magic/altrC.wav", d,
+                                                {volume=20.7+math.random()*0.3,pitch=0.9+math.random()*0.3,loop=false})
+                                                -- Play alteration hit sound after a delay
+                                                async:newUnsavableSimulationTimer(0.4, function()
+                                                    if d and d:isValid() then
+                                                        core.sound.playSoundFile3d("sound/Fx/magic/altrH.wav", d,
+                                                        {volume=20.7+math.random()*0.3,pitch=0.9+math.random()*0.3,loop=false})
+                                                    end
+                                                end)
+                                                core.sound.playSoundFile3d("sound/fx/trans/chain_pul2.wav", d,
+                                                {volume=20.7+math.random()*0.3,pitch=0.9+math.random()*0.3,loop=false})
+                                                npc:sendEvent('StartAIPackage', {
+                                                    type = 'Travel',
+                                                    destPosition = player.position,
+                                                    cancelOther = true
+                                                       })
+                                            end
+                                            break
+                                        end
+                                    end
+                                    doorInvestigation[npcId]=nil          
+                                    -- Send event to player script to re-recruit the NPC so it re-follows the player
+                                           core.sendGlobalEvent('AntiTheft_ReRecruitGuard', {npcId = npcId})
+                                    log("[DOOR INVESTIGATION] Door investigation complete for NPC",npcId, "- re-recruiting to follow player")
+                                end)
+                            end
+
+                            log("[DOOR INVESTIGATION] NPC", npcId, "is now stopped and waiting 15 seconds before re-recruitment")
+                        else
+                            -- NPC is already waiting, check if 15 seconds have passed
+                            local waitTimeElapsed = currentTime - investigationData.waitStartTime
+                            if currentTime - investigationData.lastLog >= 1.0 then
+                                log("[DOOR INVESTIGATION] NPC", npcId, "stopped for investigation - time elapsed:", string.format("%.1f", waitTimeElapsed), "seconds (total 15 seconds)")
+                                investigationData.lastLog = currentTime
+                            end
+                        end
+                    else
+                        -- NPC is still traveling to the door position
+                        if currentTime - investigationData.lastLog >= 1.0 then
+                            log("[DOOR INVESTIGATION] NPC", npcId, "traveling to door position - distance to door:", string.format("%.1f", distanceToDoor), "units")
+                            investigationData.lastLog = currentTime
+                        end
+                    end
+                else
+                    log("[DOOR INVESTIGATION] NPC", npcId, "no longer valid - removing from investigation tracking")
+                    doorInvestigation[npcId] = nil
+                end
+                ::continue::
             end
         end
     }

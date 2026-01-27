@@ -37,14 +37,16 @@ local function log(...)
         local args = {...}
         for i, v in ipairs(args) do
             if type(v) == "string" and v:match("^0x%x+$") then
-                -- If it's a hex ID, try to find the NPC in nearby actors
+                -- If it's a hex ID, try to find the NPC in nearby actors (only if nearby is available)
                 local npcName = nil
-                for _, actor in ipairs(nearby.actors) do
-                    if actor.id == v and actor.type == types.NPC then
-                        local record = types.NPC.record(actor)
-                        if record and record.name then
-                            npcName = record.name
-                            break
+                if nearby and nearby.actors then
+                    for _, actor in ipairs(nearby.actors) do
+                        if actor.id == v and actor.type == types.NPC then
+                            local record = types.NPC.record(actor)
+                            if record and record.name then
+                                npcName = record.name
+                                break
+                            end
                         end
                     end
                 end

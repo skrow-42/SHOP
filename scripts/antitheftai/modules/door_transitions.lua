@@ -74,7 +74,7 @@ function doorModule.detectDoorTransition(lastPlayerPosition, currentPosition, ne
 end
 
 -- Teleport guard through door
-function doorModule.teleportGuardThroughDoor(guardId, targetPosition, targetCell, selfCell, core, util)
+function doorModule.teleportGuardThroughDoor(guardId, targetPosition, targetCell, selfCell, core, util, returnPosition)
     log("Teleporting guard", guardId, "through door")
 
     local offset = util.vector3(
@@ -90,14 +90,16 @@ function doorModule.teleportGuardThroughDoor(guardId, targetPosition, targetCell
         core.sendGlobalEvent('AntiTheft_TeleportGuard', {
             npcId = guardId,
             cellName = targetCell.name or targetCell,
-            position = teleportPos
+            position = teleportPos,
+            returnPosition = returnPosition
         })
     else
         log("Teleporting guard within same cell:", selfCell.name)
         core.sendGlobalEvent('AntiTheft_TeleportGuard', {
             npcId = guardId,
             cellName = selfCell.name,
-            position = teleportPos
+            position = teleportPos,
+            returnPosition = returnPosition
         })
     end
 end

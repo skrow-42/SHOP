@@ -21,14 +21,26 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 -- Guard Actions (Recruit, Follow, Search, Home)
 ----------------------------------------------------------------------
 
-local utils = require('scripts.antitheftai.modules.utils')
-local pathModule = require('scripts.antitheftai.modules.path_recording')
-local storage = require('scripts.antitheftai.modules.storage')
-local types = require('openmw.types')
-local self = require('openmw.self')
-local core = require('openmw.core')
-local nearby = require('openmw.nearby')
-local actions = {}
+local utils       = require('scripts.antitheftai.modules.utils')
+local pathModule  = require('scripts.antitheftai.modules.path_recording')
+local storage     = require('scripts.antitheftai.modules.storage')
+local types       = require('openmw.types')
+local self        = require('openmw.self')
+local core        = require('openmw.core')
+local nearby      = require('openmw.nearby')
+
+local actions     = {}
+
+local npcRaceGenderMap = {}
+
+-- Correct helper table (Actor → AttributeStat functions)
+local Attr = types.Actor.stats.attributes    -- strength/agility/intelligence …
+
+-- Tiny helper so we don't repeat nil checks
+local function getAttr(actor, fn)
+    local stat = fn(actor)                   -- #AttributeStat or nil (creatures)
+    return (stat and stat.modified) or 0     -- .modified = current value
+end
 
 local config = require('scripts.antitheftai.modules.config')
 local settings = require('scripts.antitheftai.SHOPsettings')
@@ -69,17 +81,38 @@ end
 function actions.recruit(npc, state, detection, self)
     if not npc then return end
 
+    local classification = require('scripts.antitheftai.modules.npc_classification')
+    local types = require('openmw.types')
+
     log("[RECRUIT] Recruiting NPC", npc.id)
 
+    -- If NPC is currently returning home, cancel the return process
     if state.mustCompleteReturn[npc.id] or state.returnInProgress[npc.id] then
-        return
+        log("[RECRUIT] NPC", npc.id, "is returning home - canceling return process and recruiting")
+
+        -- Cancel the return home process
+        state.mustCompleteReturn[npc.id] = nil
+        state.returnInProgress[npc.id] = nil
+
+        -- Send global event to cancel any ongoing return home timers/processes
+        core.sendGlobalEvent('AntiTheft_CancelReturnHome', {
+            npcId = npc.id
+        })
+
+        log("[RECRUIT] Canceled return home process for NPC", npc.id)
     end
 
     -- Check if we already have a different following guard in this cell
     local cellName = npc.cell.name or ""
     if state.guardsPerCell[cellName] and state.guardsPerCell[cellName].following and state.guardsPerCell[cellName].guard.id ~= npc.id then
-        log("[RECRUIT] Already have a different following guard in cell", cellName, "- cannot recruit another")
-        return
+        -- Allow recruiting if the current guard is being sent home (for hierarchy switches) or if new NPC has higher priority
+        local currentGuardId = state.guardsPerCell[cellName].guard.id
+        local newPriority = classification.getNPCPriority(npc, types, self, npc.cell, config, require('openmw.nearby'))
+        local currentPriority = state.guardPriority or 999
+        if not state.returnInProgress[currentGuardId] and newPriority >= currentPriority then
+            log("[RECRUIT] Already have a different following guard in cell", cellName, "with equal/higher priority - cannot recruit another")
+            return
+        end
     end
 
     local storedData = storage.retrieveNPCData(npc.id, npc.cell, require('openmw.util'))
@@ -95,10 +128,47 @@ function actions.recruit(npc, state, detection, self)
         storage.storeNPCData(npc.id, state.npcOriginalData[npc.id])
     end
 
-    local classification = require('scripts.antitheftai.modules.npc_classification')
-    local types = require('openmw.types')
+    -- If there's already a guard, send it home first
+    if state.guard and state.guard.id ~= npc.id then
+        log("[RECRUIT] Sending current guard", state.guard.id, "home before recruiting new guard", npc.id)
+        actions.goHome(state, core)
+    end
 
     state.guard = npc
+
+    -- Log NPC actor stats upon recruitment
+    local strength = getAttr(npc, Attr.strength)
+    local agility = getAttr(npc, Attr.agility)
+    local intelligence = getAttr(npc, Attr.intelligence)
+    log(string.format(
+        "Recruited NPC stats – Strength: %d, Agility: %d, Intelligence: %d",
+        strength, agility, intelligence
+    ))
+
+    local record = types.NPC.record(npc)
+    if record then
+        local race = "Unknown"
+        if record.race then
+            if type(record.race) == "table" then
+                race = record.race.name or record.race.id or tostring(record.race) or "Unknown"
+            else
+                race = tostring(record.race)
+            end
+        end
+
+        local gender = "male" -- default
+        if record.isMale ~= nil then
+            if record.isMale then
+                gender = "male"
+            else
+                gender = "female"
+            end
+        end
+
+        npcRaceGenderMap[npc.id] = { race = race, gender = gender }
+        log("Stored race and gender for NPC", npc.id, "Race:", race, "Gender:", gender)
+    end
+
     -- attach
     if npc.addScript and not npc:hasScript('scripts/antitheftai/guardCombatForward') then
         npc:addScript('scripts/antitheftai/guardCombatForward')
@@ -199,6 +269,12 @@ function actions.followPlayer(state, self, config)
         log("[FOLLOW] Starting LOS monitoring for recruited NPC", state.guard.id)
         -- LOS monitoring is handled in the main update loop, but we can force an initial check
         state.forceLOSCheck = true
+        
+        -- Register as following NPC in global script
+        core.sendGlobalEvent('AntiTheft_RegisterFollowingNPC', {
+            npcId = state.guard.id
+        })
+        log("[FOLLOW] Registered NPC", state.guard.id, "as following in global script")
     end
 
     -- Check for ErnBurglary integration - only invoke once per NPC following start
@@ -245,6 +321,12 @@ function actions.startWandering(state, config)
     state.searching = false
     state.returningHome = false
     state.searchT = 0
+
+    -- Unregister as following NPC in global script
+    core.sendGlobalEvent('AntiTheft_UnregisterFollowingNPC', {
+        npcId = state.guard.id
+    })
+    log("[WANDER] Unregistered NPC", state.guard.id, "as following in global script")
 
     log("[WANDER] Wandering randomly")
 end
@@ -317,6 +399,12 @@ function actions.startSearch(state, detection, config)
     state.returningHome = false
     state.searchT = 0
     
+    -- Unregister as following NPC in global script
+    core.sendGlobalEvent('AntiTheft_UnregisterFollowingNPC', {
+        npcId = state.guard.id
+    })
+    log("[SEARCH] Unregistered NPC", state.guard.id, "as following in global script")
+    
     log("[SEARCH] Wandering at last known player location")
 end
 
@@ -383,6 +471,14 @@ function actions.goHome(state, core)
     state.searching = false
     state.returningHome = true
     state.searchT = 0
+
+    -- Unregister as following NPC in global script
+    if state.guard and state.guard:isValid() then
+        core.sendGlobalEvent('AntiTheft_UnregisterFollowingNPC', {
+            npcId = state.guard.id
+        })
+        log("[GO HOME] Unregistered NPC", state.guard.id, "as following in global script")
+    end
 
     -- Clear guard per cell when going home
     local cellName = state.guard.cell.name or ""
@@ -461,6 +557,14 @@ function actions.teleportHome(state, core)
     state.searching = false
     state.returningHome = true
     state.searchT = 0
+
+    -- Unregister as following NPC in global script
+    core.sendGlobalEvent('AntiTheft_UnregisterFollowingNPC', {
+        npcId = guardId
+    })
+    log("[TELEPORT HOME] Unregistered NPC", guardId, "as following in global script")
 end
+
+actions.npcRaceGenderMap = npcRaceGenderMap
 
 return actions

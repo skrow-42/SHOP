@@ -93,6 +93,8 @@ state.realTimeWandering = {}
 state.activeGuards = {}
 state.disbandedGuards = {}  -- NPCs that were disbanded but should still detect effects, with combat memory (persistent across sessions)
 state.guardsPerCell = {}  -- cellName -> {guard = npc, following = true/false}
+state.postTeleportPositions = {}  -- npcId -> position where NPC was teleported to through doors
+state.twoPhaseReturns = {}  -- npcId -> true if using two-phase return (travel to post-teleport pos then teleport home)
 
 
 
@@ -137,6 +139,9 @@ function state.reset()
     state.pendingAlarmRestorations = {}
     -- Clear guards per cell on reset
     state.guardsPerCell = {}
+    -- Clear two-phase return state on reset
+    state.postTeleportPositions = {}
+    state.twoPhaseReturns = {}
 end
 
 return state

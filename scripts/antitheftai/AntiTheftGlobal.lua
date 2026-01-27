@@ -32,6 +32,10 @@ local pathModule  = require('scripts.antitheftai.modules.path_recording')
 local doorModule  = require('scripts.antitheftai.modules.door_transitions')
 local state = require('scripts.antitheftai.modules.state')
 
+-- Local hardcoded NPC voice response table based on race and gender
+local guardActions = require('scripts.antitheftai.modules.guard_actions')
+
+
 -- Use the settings module which automatically handles player/global storage context
 
 -- Track which NPCs are currently in search mode
@@ -41,6 +45,9 @@ local searchingNPCs = {}
 local skipCellChangeLogic = false
 local actions     = require('scripts.antitheftai.modules.guard_actions')
 local crossCell   = require('scripts.antitheftai.modules.cross_cell_returns')
+
+-- Track pending bounty LoS checks (continuous monitoring during door opening)
+local pendingBountyMonitoring = {}  -- doorId -> {npcId, bountyAmount, startTime, doorPosition}
 
 ----------------------------------------------------------------------
 -- Debug logging with live-toggle support
@@ -108,6 +115,7 @@ local types  = safeRequire('openmw.types')
 local util   = safeRequire('openmw.util')
 local core   = safeRequire('openmw.core')
 local I      = safeRequire('openmw.interfaces')
+local input  = safeRequire('openmw.input')
 
 if not (self and nearby and types and util and core) then
     error('[AntiTheft-Player] CRITICAL: Required modules failed to load!')
@@ -365,6 +373,7 @@ local function onClearSearchState(eventData)
         log("Clearing search state for NPC", eventData.npcId, "- NPC was teleported home")
 
         -- Clear all search-related state for this NPC
+        core.sendGlobalEvent('AntiTheft_CancelSearchTimer', { npcId = state.guard.id })
         state.searching = false
         state.searchT = 0
         state.searchTime = nil
@@ -411,6 +420,7 @@ local function onS3CombatTargetAdded(eventData)
             log("Following NPC entered combat with non-player target - disbanding completely")
             -- Disband completely from the player and remove all scripts to allow default behavior
             state.following = false
+            core.sendGlobalEvent('AntiTheft_CancelSearchTimer', { npcId = state.guard.id })
             state.searching = false
             state.returningHome = false
 
@@ -429,6 +439,9 @@ local function onS3CombatTargetAdded(eventData)
             state.guardPriority = 999
             state.guardInCombat = false
         end
+    elseif not state.guard then
+        -- No guard is following - but door monitoring should still be active during combat
+        log("No guard following - combat continues with door monitoring active")
     end
 end
 
@@ -470,6 +483,249 @@ local delayedTeleportActive = false
 local interfaceWindowOpenTime = 0
 local INTERFACE_WINDOW_TIMEOUT = 30 -- seconds
 
+-- Door state tracking for lock spell bounty
+local doorStates = {}  -- doorId -> {wasLocked = boolean, doorState = string, lastCheckTime = number}
+
+-- List of lock effect IDs that should trigger bounty check
+local LOCK_EFFECT_IDS = {
+    'lock',
+    'sc_lock',
+    'lock lock'
+}
+
+-- Initialize door states when entering interior cell
+local function initializeDoorStates()
+    log("[DOOR STATE] === INITIALIZING DOOR STATES ===")
+    doorStates = {}
+    local doorCount = 0
+    local unlockedDoors = 0
+
+    if not nearby.objects then
+        log("[DOOR STATE] WARNING: nearby.objects is nil - cannot initialize door states")
+        return
+    end
+
+    for _, obj in ipairs(nearby.objects) do
+        if obj.type == types.Door then
+            local doorId = obj.id
+            local isLocked = types.Lockable.isLocked(obj)
+            local lockLevel = types.Lockable.getLockLevel(obj)
+            local doorState = types.Door.getDoorState(obj)
+
+            -- Only track doors that are not locked and in Idle or Closing state
+            if not isLocked and (doorState == types.Door.STATE.Idle or doorState == types.Door.STATE.Closing) then
+                doorStates[doorId] = {
+                    wasLocked = false,
+                    doorState = doorState,
+                    lastCheckTime = core.getRealTime()
+                }
+                unlockedDoors = unlockedDoors + 1
+                log("[DOOR STATE] Tracking unlocked door", doorId, "- state =", doorState, "- lock level =", lockLevel)
+            else
+                log("[DOOR STATE] Skipping door", doorId, "- locked =", isLocked, "- state =", doorState)
+            end
+            doorCount = doorCount + 1
+        end
+    end
+    log("[DOOR STATE] === INITIALIZED", doorCount, "total doors,", unlockedDoors, "unlocked doors being tracked ===")
+end
+-- Check for door state changes and apply bounty if conditions met
+local function checkDoorStateChanges()
+    log("[DOOR STATE] === CHECKING DOOR STATE CHANGES ===")
+
+    -- Debug: Check if we're in the right cell type
+    local isInterior = self.cell and not self.cell.isExterior
+    log("[DOOR STATE] Cell check - cell exists:", self.cell ~= nil, "- is interior:", isInterior, "- cell name:", self.cell and self.cell.name or "nil")
+
+    -- Debug: Count all objects and actors
+    local totalObjects = 0
+    local doorObjects = 0
+    local totalActors = 0
+    local doorActors = 0
+    local npcActors = 0
+
+    -- Count objects (doors are objects)
+    if nearby.objects then
+        for _, obj in ipairs(nearby.objects) do
+            totalObjects = totalObjects + 1
+            if obj.type == types.Door then
+                doorObjects = doorObjects + 1
+            end
+        end
+    else
+        log("[DOOR STATE] WARNING: nearby.objects is nil!")
+        return -- Exit early if objects table is nil
+    end
+
+    -- Count actors (doors might be actors, NPCs are actors)
+    for _, actor in ipairs(nearby.actors) do
+        totalActors = totalActors + 1
+        if actor.type == types.Door then
+            doorActors = doorActors + 1
+        elseif actor.type == types.NPC then
+            npcActors = npcActors + 1
+        end
+    end
+
+    log("[DOOR STATE] Object counts - total:", totalObjects, "- doors:", doorObjects)
+    log("[DOOR STATE] Actor counts - total:", totalActors, "- doors:", doorActors, "- NPCs:", npcActors)
+
+    local currentTime = core.getRealTime()
+    local doorsLocked = 0
+    local totalDoors = 0
+
+    -- Check doors in nearby.objects first (doors are objects)
+    for _, obj in ipairs(nearby.objects) do
+        -- Check if this is a door using multiple methods
+        local isDoor = false
+        local doorRecord = nil
+        local doorName = "unknown"
+        local doorRecordId = "unknown"
+
+        if obj.type == types.Door then
+            isDoor = true
+            doorRecord = types.Door.record(obj)
+            if doorRecord then
+                doorName = doorRecord.name or "unnamed"
+                doorRecordId = doorRecord.id or "no-id"
+            end
+        end
+
+        if isDoor then
+            totalDoors = totalDoors + 1
+            local doorId = obj.id
+            local isLocked = types.Lockable.isLocked(obj)
+            local lockLevel = types.Lockable.getLockLevel(obj)
+            local doorState = types.Door.getDoorState(obj)
+
+            log("[DOOR STATE] Found door in objects", doorId, "- name:", doorName, "- record id:", doorRecordId, "- locked =", isLocked, "- lock level =", lockLevel, "- state =", doorState)
+
+            local doorData = doorStates[doorId]
+
+            if doorData then
+                -- Check if door was unlocked and is now locked
+                if not doorData.wasLocked and isLocked then
+                    doorsLocked = doorsLocked + 1
+                    log("[DOOR STATE] Door", doorId, "(", doorName, ") was unlocked, now locked - LOCK DETECTED!")
+
+                    -- Sync with global script - let global script handle unlock sequences and bounty
+                    core.sendGlobalEvent('AntiTheft_UpdateDoorLockState', {
+                        doorId = doorId,
+                        lockLevel = lockLevel
+                    })
+                    log("[DOOR STATE] Sent lock state update to global script - global script will handle unlock sequence and bounty")
+                elseif doorData.wasLocked and not isLocked then
+                    log("[DOOR STATE] Door", doorId, "(", doorName, ") was locked, now unlocked - UNLOCK DETECTED")
+                    -- Play unlock sound for the following NPC guard if applicable
+                    if state.guard and state.guard:isValid() and state.following then
+                        playNpcUnlockSound(state.guard)
+                    end
+
+                    -- Sync with global script
+                    core.sendGlobalEvent('AntiTheft_UpdateDoorLockState', {
+                        doorId = doorId,
+                        lockLevel = 0
+                    })
+                else
+                    log("[DOOR STATE] Door", doorId, "(", doorName, ") state unchanged - locked =", isLocked)
+                end
+
+                -- Update door state
+                doorStates[doorId] = {
+                    wasLocked = isLocked,
+                    lastCheckTime = currentTime
+                }
+            else
+                -- New door, initialize it
+                log("[DOOR STATE] New door detected, initializing:", doorId, "(", doorName, ")")
+                doorStates[doorId] = {
+                    wasLocked = isLocked,
+                    lastCheckTime = currentTime
+                }
+
+                -- Do NOT sync with global script on initialization
+                -- Only sync when actual state changes are detected
+            end
+        end
+    end
+
+    -- Also check doors in nearby.actors (in case they are there too)
+    for _, actor in ipairs(nearby.actors) do
+        -- Check if this is a door using multiple methods
+        local isDoor = false
+        local doorRecord = nil
+        local doorName = "unknown"
+        local doorRecordId = "unknown"
+
+        if actor.type == types.Door then
+            isDoor = true
+            doorRecord = types.Door.record(actor)
+            if doorRecord then
+                doorName = doorRecord.name or "unnamed"
+                doorRecordId = doorRecord.id or "no-id"
+            end
+        end
+
+        if isDoor then
+            totalDoors = totalDoors + 1
+            local doorId = actor.id
+            local isLocked = types.Lockable.isLocked(actor)
+            local lockLevel = types.Lockable.getLockLevel(actor)
+            local doorState = types.Door.getDoorState(actor)
+
+            log("[DOOR STATE] Found door in actors", doorId, "- name:", doorName, "- record id:", doorRecordId, "- locked =", isLocked, "- lock level =", lockLevel, "- state =", doorState)
+
+            local doorData = doorStates[doorId]
+
+            if doorData then
+                -- Check if door was unlocked and is now locked
+                if not doorData.wasLocked and isLocked then
+                    doorsLocked = doorsLocked + 1
+                    log("[DOOR STATE] Door", doorId, "(", doorName, ") was unlocked, now locked - LOCK DETECTED!")
+
+                    -- Sync with global script - let global script handle unlock sequences and bounty
+                    core.sendGlobalEvent('AntiTheft_UpdateDoorLockState', {
+                        doorId = doorId,
+                        lockLevel = lockLevel
+                    })
+                    log("[DOOR STATE] Sent lock state update to global script - global script will handle unlock sequence")
+                elseif doorData.wasLocked and not isLocked then
+                    log("[DOOR STATE] Door", doorId, "(", doorName, ") was locked, now unlocked - UNLOCK DETECTED")
+                    -- Play unlock sound for the following NPC guard if applicable
+                    if state.guard and state.guard:isValid() and state.following then
+                        playNpcUnlockSound(state.guard)
+                    end
+
+                    -- Sync with global script
+                    core.sendGlobalEvent('AntiTheft_UpdateDoorLockState', {
+                        doorId = doorId,
+                        lockLevel = 0
+                    })
+                else
+                    log("[DOOR STATE] Door", doorId, "(", doorName, ") state unchanged - locked =", isLocked)
+                end
+
+                -- Update door state
+                doorStates[doorId] = {
+                    wasLocked = isLocked,
+                    lastCheckTime = currentTime
+                }
+            else
+                -- New door, initialize it
+                log("[DOOR STATE] New door detected, initializing:", doorId, "(", doorName, ")")
+                doorStates[doorId] = {
+                    wasLocked = isLocked,
+                    lastCheckTime = currentTime
+                }
+
+                -- Do NOT sync with global script on initialization
+                -- Only sync when actual state changes are detected
+            end
+        end
+    end
+
+    log("[DOOR STATE] === CHECK COMPLETE - Total doors:", totalDoors, "- Doors locked this check:", doorsLocked, "===")
+end
 -- Detect teleport effects applied to player and teleport guard home immediately
 local function onMagicEffectApplied(effectId, magnitude, effect)
     -- Check if this is a teleport effect
@@ -517,6 +773,7 @@ local function onMagicEffectApplied(effectId, magnitude, effect)
         state.returnInProgress[state.guard.id] = true
         state.mustCompleteReturn[state.guard.id] = true
         state.following = false
+        core.sendGlobalEvent('AntiTheft_CancelSearchTimer', { npcId = state.guard.id })
         state.searching = false
         state.returningHome = true
         state.searchT = 0
@@ -548,7 +805,53 @@ local function onMagicEffectApplied(effectId, magnitude, effect)
     end
 end
 
--- Detect when player casts teleport spells
+-- Track door lock states for lock spell detection
+local preCastDoorStates = {}
+
+-- Delayed callback for lock spell success verification
+local function checkLockSpellSuccess()
+    log("[LOCK SPELL] Checking if lock spell was successful...")
+
+    local lockedDoors = 0
+    local totalCheckedDoors = 0
+    local lockedDoorPos = nil
+
+    -- Check all doors in the cell
+    for _, actor in ipairs(nearby.actors) do
+        if actor.type == types.Door then
+            totalCheckedDoors = totalCheckedDoors + 1
+            local doorId = actor.id
+            local wasUnlocked = preCastDoorStates[doorId]
+            local isLocked = types.Lockable.isLocked(actor)
+
+            if wasUnlocked and isLocked then
+                lockedDoors = lockedDoors + 1
+                log("[LOCK SPELL] Door", doorId, "was unlocked before spell, now locked - SUCCESS!")
+                -- Store position of first locked door
+                if not lockedDoorPos then
+                    lockedDoorPos = actor.position
+                end
+            elseif wasUnlocked and not isLocked then
+                log("[LOCK SPELL] Door", doorId, "was unlocked before spell, still unlocked - no change")
+            end
+        end
+    end
+
+    log("[LOCK SPELL] Checked", totalCheckedDoors, "doors, found", lockedDoors, "newly locked doors")
+
+    -- Clear the pre-cast states
+    preCastDoorStates = {}
+
+    -- If doors were successfully locked, check conditions and apply bounty
+    if lockedDoors > 0 then
+        -- No immediate bounty - let global script handle it after unlock + LoS check
+        log("[LOCK SPELL] Lock spell detected - global script will handle bounty after unlock sequence")
+    else
+        log("[LOCK SPELL] No doors were successfully locked - no bounty applied")
+    end
+end
+
+-- Detect when player casts lock spells
 local function onSpellCast(spellId)
     -- Check if this spell contains teleport effects
     local spellRecord = types.Spell.record(spellId)
@@ -591,6 +894,7 @@ local function onSpellCast(spellId)
                 state.returnInProgress[state.guard.id] = true
                 state.mustCompleteReturn[state.guard.id] = true
                 state.following = false
+                core.sendGlobalEvent('AntiTheft_CancelSearchTimer', { npcId = state.guard.id })
                 state.searching = false
                 state.returningHome = true
                 state.searchT = 0
@@ -598,17 +902,299 @@ local function onSpellCast(spellId)
                 log("✓ NPC teleported home via global event due to teleport spell '" .. spellId .. "'")
                 break -- Only handle once per spell cast
             end
+
+            -- Check for lock effects
+            local isLockEffect = false
+            for _, lockId in ipairs(LOCK_EFFECT_IDS) do
+                if effectId == lockId then
+                    isLockEffect = true
+                    break
+                end
+            end
+
+            if isLockEffect then
+                log("Player casting lock spell '" .. spellId .. "' with effect '" .. effectId .. "' - tracking door states for success verification")
+
+                -- Record current door lock states
+                preCastDoorStates = {}
+                for _, actor in ipairs(nearby.actors) do
+                    if actor.type == types.Door then
+                        local doorId = actor.id
+                        local isLocked = types.Lockable.isLocked(actor)
+                        preCastDoorStates[doorId] = not isLocked  -- true if was unlocked
+                        log("[LOCK SPELL] Door", doorId, "pre-cast state: unlocked =", not isLocked)
+                    end
+                end
+
+                -- Schedule success check after a short delay (1 second)
+                async:registerTimerCallback("AntiTheft_LockSpellCheck", function()
+                    checkLockSpellSuccess()
+                end, 1.0)
+
+                log("[LOCK SPELL] Lock spell cast detected - will check success in 1 second")
+                break -- Only handle once per spell cast
+            end
         end
     end
 end
 
--- Removed onSpellCast as it doesn't seem to work in OpenMW
+-- Event handler for lock spell bounty check
+local function onCheckLockSpellBounty()
+    log("[LOCK SPELL] Received bounty check event from global script")
+
+    -- No immediate bounty - let global script handle it after unlock + LoS check
+    log("[LOCK SPELL] Lock spell detected - global script will handle bounty after unlock sequence")
+end
+
+-- Event handler for door bounty application
+local guardActions = require('scripts.antitheftai.modules.guard_actions')
+
+local function playNpcVoiceResponse(npc)
+    if not npc then
+        log("[NPC VOICE RESPONSE] ERROR: npc argument is nil or missing")
+        return
+    end
+    if not npc:isValid() then
+        log("[NPC VOICE RESPONSE] ERROR: npc is invalid or not valid")
+        return
+    end
+    
+    local raceGenderInfo = guardActions.npcRaceGenderMap[npc.id]
+    local race, gender
+
+    if raceGenderInfo then
+        race = raceGenderInfo.race
+        gender = raceGenderInfo.gender
+        log("[NPC VOICE RESPONSE] Using stored race and gender from npcRaceGenderMap for npc ID:", npc.id, "Race:", race, "Gender:", gender)
+    else
+        local record = types.NPC.record(npc)
+        if not record then
+            log("[NPC VOICE RESPONSE] ERROR: Failed to get NPC record for npc ID:", npc.id)
+            return
+        end
+
+        -- Get race string from record's race id
+        local rawRace = record.race and record.race.id and record.race.id:lower() or nil
+        if not rawRace then
+            log("[NPC VOICE RESPONSE] ERROR: npc race id is nil for npc ID:", npc.id)
+            return
+        end
+        race = raceIdToName[rawRace]
+        if not race then
+            log("[NPC VOICE RESPONSE] ERROR: npc race", rawRace, "not found in raceIdToName mapping for npc ID:", npc.id)
+            return
+        end
+
+        -- Get gender: true = female, false = male
+        local isFemale = record.female
+        gender = isFemale and "female" or "male"
+        log("[NPC VOICE RESPONSE] Using race and gender from NPC record for npc ID:", npc.id, "Race:", race, "Gender:", gender)
+    end
+
+    -- Check if npcVoiceResponses exists (it was removed by user earlier)
+    if not npcVoiceResponses then
+        log("[NPC VOICE RESPONSE] npcVoiceResponses table not available - skipping voice response")
+        return
+    end
+
+    local responsesForRaceGender = npcVoiceResponses[race] and npcVoiceResponses[race][gender]
+    if not responsesForRaceGender or #responsesForRaceGender == 0 then
+        log("[NPC VOICE RESPONSE] WARNING: no voice responses found for race", race, "gender", gender)
+        return
+    end
+
+    -- Pick a random response
+    local idx = math.random(#responsesForRaceGender)
+    local voiceResponse = responsesForRaceGender[idx]
+    if voiceResponse and voiceResponse.file and voiceResponse.response then
+        log("[NPC VOICE RESPONSE] Sending global event to play voice file:", voiceResponse.file, "with response text:", voiceResponse.response, "for npc ID:", npc.id)
+        core.sendGlobalEvent('AntiTheft_PlayNPCVoice', {npcId = npc.id, voiceFile = voiceResponse.file})
+        log("[NPC VOICE RESPONSE] Global event sent for npc ID:", npc.id)
+    else
+        log("[NPC VOICE RESPONSE] WARNING: invalid voiceResponse data for npc ID:", npc.id)
+    end
+end
+
+local function onApplyDoorBounty(data)
+    if not data or not data.bountyAmount then return end
+
+    log("[DOOR BOUNTY] Applying door bounty:", data.bountyAmount, "gold")
+
+    -- Check if there's a valid guard following - if not, skip bounty application
+    if not state.guard or not state.guard:isValid() then
+        log("[DOOR BOUNTY] No valid guard following - skipping bounty application")
+        return
+    end
+
+    local race, gender = nil, nil
+    local guardRaceGender = guardActions.npcRaceGenderMap[state.guard.id]
+    if guardRaceGender then
+        race = guardRaceGender.race
+        gender = guardRaceGender.gender
+        log("[DOOR BOUNTY] Retrieved race and gender from npcRaceGenderMap: race =", race, ", gender =", gender)
+    else
+        -- Fallback: try to get from NPC record
+        local record = types.NPC.record(state.guard)
+        if record then
+            local rawRace = record.race and record.race.id and record.race.id:lower() or nil
+            if rawRace and raceIdToName[rawRace] then
+                race = raceIdToName[rawRace]
+                gender = record.female and "female" or "male"
+                log("[DOOR BOUNTY] Retrieved race and gender from NPC record: race =", race, ", gender =", gender)
+            else
+                log("[DOOR BOUNTY] ERROR: Could not find race or gender for guard NPC")
+            end
+        else
+            log("[DOOR BOUNTY] ERROR: NPC record not found for guard NPC")
+        end
+    end
+
+    -- Since we're in a player script, we need to send the bounty change to a global script
+    -- The global script will handle the actual bounty modification and investigation
+    core.sendGlobalEvent('AntiTheft_SetPlayerBounty', {
+        player = self,
+        bountyAmount = data.bountyAmount,
+        reason = "Door interaction while being followed",
+        doorX = data.doorX,
+        doorY = data.doorY,
+        doorZ = data.doorZ,
+        npcId = state.guard.id,
+        npcRace = race,
+        npcGender = gender
+    })
+
+    -- Play NPC voice response for the guard
+    log("[DOOR BOUNTY] state.guard is valid with NPC ID:", state.guard.id, "calling playNpcVoiceResponse now")
+    playNpcVoiceResponse(state.guard)
+
+    -- Show message to player
+    self:sendEvent('ShowMessage', {
+        message = "You have been caught interacting with doors while being followed! Bounty increased by " .. data.bountyAmount .. " gold."
+    })
+
+    log("✓ Door bounty event sent to global script")
+end
+
+-- Event handler for starting door investigation
+local function onStartDoorInvestigation(data)
+    if not data or not data.npcId then return end
+
+    log("[DOOR INVESTIGATION] Starting door investigation for NPC:", data.npcId)
+
+    -- Set investigation state to prevent normal following behavior
+    state.investigatingDoor = true
+    state.doorPosition = nil  -- Will be set when NPC reaches door area
+
+    log("✓ Door investigation state set - NPC will not follow player during investigation")
+end
+
+
+
+-- Event handler for re-recruiting guard after door investigation
+local function onReRecruitGuard(data)
+    if not data or not data.npcId then return end
+
+    log("[RECRUIT] Re-recruiting guard after door investigation:", data.npcId)
+
+    -- Clear investigation state
+    state.investigatingDoor = false
+    state.doorPosition = nil
+
+    -- Find the NPC
+    local npc = nil
+    for _, actor in ipairs(nearby.actors) do
+        if actor.id == data.npcId then
+            npc = actor
+            break
+        end
+    end
+
+    if npc and npc:isValid() then
+        -- Re-recruit the NPC
+        actions.recruit(npc, state, detection, self)
+        if not dialogueOpen then
+            actions.followPlayer(state, self, config)
+        end
+        log("✓ NPC", data.npcId, "re-recruited and following player")
+    else
+        log("ERROR: NPC", data.npcId, "not found for re-recruitment")
+    end
+end
 
 ----------------------------------------------------------------------
 -- Main Update Loop
 ----------------------------------------------------------------------
 
 local function onUpdate(dt)
+    -- Process pending LoS monitoring for delayed bounty
+    for doorId, monitorData in pairs(pendingBountyMonitoring) do
+        local currentTime = core.getRealTime()
+        
+        -- Check for timeout
+        if currentTime - monitorData.startTime > monitorData.maxDuration then
+            log("[LOS MONITORING] Timeout for door", doorId, "- stopping monitoring")
+            pendingBountyMonitoring[doorId] = nil
+        else
+            -- Find the NPC
+            local npc = nil
+            for _, actor in ipairs(nearby.actors) do
+                if actor.id == monitorData.npcId then
+                    npc = actor
+                    break
+                end
+            end
+            
+            if npc and npc:isValid() then
+                -- Check LoS
+                if detection.canNpcSeePlayer(npc, self, nearby, types, config) then
+                    log("[LOS MONITORING] NPC", monitorData.npcId, "caught player in LoS! Applying bounty.")
+                    
+                    -- Check if an NPC is currently following
+                    local hasFollowing = (state.guard and state.guard:isValid() and state.following) or false
+                    log("[LOS MONITORING] Following state check - state.guard:", state.guard and state.guard.id or "nil", 
+                        "state.following:", tostring(state.following), "hasFollowingNPC:", tostring(hasFollowing))
+                    
+                    -- Get NPC race and gender for voice response
+                    local npcRace, npcGender = nil, nil
+                    if npc then
+                        local npcRecord = types.NPC.record(npc)
+                        if npcRecord then
+                            -- Extract race
+                            if npcRecord.race then
+                                if npcRecord.race.id then
+                                    npcRace = npcRecord.race.id:lower()
+                                elseif type(npcRecord.race) == "string" then
+                                    npcRace = npcRecord.race:lower()
+                                end
+                            end
+                            -- Extract gender
+                            npcGender = npcRecord.female and "female" or "male"
+                        end
+                    end
+                    
+                    -- Apply bounty via global event
+                    core.sendGlobalEvent('AntiTheft_ApplyLockSpellBounty', {
+                        bountyAmount = monitorData.bountyAmount,
+                        hasFollowingNPC = hasFollowing,
+                        playerPosition = self.position,
+                        npcId = monitorData.npcId,
+                        npcRace = npcRace,
+                        npcGender = npcGender
+                    })
+                    
+                    log("✓ Bounty applied - NPC caught player during door opening")
+                    
+                    -- Stop monitoring
+                    pendingBountyMonitoring[doorId] = nil
+                end
+            else
+                -- NPC not found nearby (maybe left cell or too far), stop monitoring
+                -- log("[LOS MONITORING] NPC not found nearby - stopping monitoring")
+                -- pendingBountyMonitoring[doorId] = nil
+            end
+        end
+    end
+
     if isCellDisabledByAnyRule() then return end
     if state.scriptDisabled then return end
 
@@ -707,6 +1293,7 @@ local function onUpdate(dt)
                 state.returnInProgress[state.guard.id] = true
                 state.mustCompleteReturn[state.guard.id] = true
                 state.following = false
+                core.sendGlobalEvent('AntiTheft_CancelSearchTimer', { npcId = state.guard.id })
                 state.searching = false
                 state.returningHome = true
                 state.searchT = 0
@@ -788,9 +1375,12 @@ local function onUpdate(dt)
             end
         end
 
+        -- Save NPCs in cell for cross-cell logic
         if isCellAllowed() then
             storage.saveAllNPCsInCell(self.cell, nearby, types, util)
         end
+
+
 
         -- Log factions on cell change for interior cells
         if self.cell and not self.cell.isExterior then
@@ -928,6 +1518,7 @@ local function onUpdate(dt)
                     state.returnInProgress[state.guard.id] = true
                     state.mustCompleteReturn[state.guard.id] = true
                     state.following = false
+                    core.sendGlobalEvent('AntiTheft_CancelSearchTimer', { npcId = state.guard.id })
                     state.searching = false
                     state.returningHome = true
                     state.searchT = 0
@@ -1095,6 +1686,7 @@ local function onUpdate(dt)
                 state.returnInProgress[state.guard.id] = true
                 state.mustCompleteReturn[state.guard.id] = true
                 state.following = false
+                core.sendGlobalEvent('AntiTheft_CancelSearchTimer', { npcId = state.guard.id })
                 state.searching = false
                 state.returningHome = true
                 state.searchT = 0
@@ -1112,60 +1704,118 @@ local function onUpdate(dt)
         end
     end
 
-    -- Handle effect removal first (before status checks)
-    if state.searching or state.following or state.guardInCombat then
-        local eff = types.Actor.activeEffects(self)
-        local inv = eff:getEffect(config.EFFECT_INVIS)
-        local cham = eff:getEffect(config.EFFECT_CHAM)
-        local chamMag = cham and cham.magnitude or 0
 
-    for _, actor in ipairs(nearby.actors) do
-        if actor.type == types.NPC and ((state.guard and actor.id == state.guard.id) or state.searching or state.disbandedGuards[actor.id]) then
+
+    -- Periodic proximity check for effect removal (every 1 second)
+    state.tProximityCheck = (state.tProximityCheck or 0) + dt
+    if state.tProximityCheck >= 1.0 then
+        state.tProximityCheck = 0
+
+        -- Calculate minimum distance to any valid NPC in the cell
+        local minDistance = math.huge
+        for _, actor in ipairs(nearby.actors) do
+            if actor.type == types.NPC and actor:isValid() and not types.Actor.isDead(actor) then
                 local distance = (actor.position - self.position):length()
+                if distance < minDistance then
+                    minDistance = distance
+                end
+            end
+        end
 
-                -- Calculate dynamic removal range for chameleon
-                local chamRemovalRange = 450 - 3.5 * chamMag  -- 100% chameleon: 100 units, 0% chameleon: 450 units
+        -- Only activate effect removal if player is within DETECTION_RANGE + 200 units of the closest NPC
+        if minDistance < config.DETECTION_RANGE + 200 then
+            local eff = types.Actor.activeEffects(self)
+            local inv = eff:getEffect(config.EFFECT_INVIS)
+            local cham = eff:getEffect(config.EFFECT_CHAM)
+            local chamMag = cham and cham.magnitude or 0
 
-                if distance <= config.DETECTION_RANGE or (cham and chamMag >= config.CHAM_HIDE_LIMIT and distance <= chamRemovalRange) then
-                    log("[SPELL REMOVAL] Within removal range of NPC", actor.id, "- distance:", math.floor(distance), "chamMag:", chamMag, "chamRange:", math.floor(chamRemovalRange))
+            for _, actor in ipairs(nearby.actors) do
+                if actor.type == types.NPC and actor:isValid() and not types.Actor.isDead(actor) then
+                    local distance = (actor.position - self.position):length()
 
-                    if inv and inv.magnitude and inv.magnitude > 0 and not detection.removedEffects[config.EFFECT_INVIS] then
-                        log("*** REMOVING INVISIBILITY ***")
+                    -- Calculate dynamic removal range for chameleon
+                    local chamRemovalRange = 450 - 3.5 * chamMag  -- 100% chameleon: 100 units, 0% chameleon: 450 units
 
-                        types.Actor.activeEffects(self):remove(config.EFFECT_INVIS)
-                        detection.removedEffects[config.EFFECT_INVIS] = true
-                        state.justRemovedInvisibility = true
+                    if distance <= config.DETECTION_RANGE or (cham and chamMag >= config.CHAM_HIDE_LIMIT and distance <= chamRemovalRange) then
+                        -- Check if NPC can actually see the player (at least one of eye/chest/feet positions)
+                        local canSeePlayer = detection.canNpcSeePlayer(actor, self, nearby, types, config)
 
-                        self:sendEvent('AddVfx', { model = "meshes/e/magic_cast_ill.NIF" })
-                        core.sound.playSoundFile3d("Fx/magic/illusFail.wav", self)
-                        lowerCellDisposition()
+                        if canSeePlayer then
+                            log("[SPELL REMOVAL] Within removal range of NPC", actor.id, "- distance:", math.floor(distance), "chamMag:", chamMag, "chamRange:", math.floor(chamRemovalRange), "- NPC can see player")
 
-                        -- If NPC was in combat with player before invisibility, resume combat (after state is set)
-                        if state.wasInCombatWithPlayer and state.guard and state.guard.id == actor.id then
-                            log("*** RESUMING COMBAT AFTER INVISIBILITY REMOVAL ***")
-                            state.guardInCombat = true
-                            state.guard:sendEvent('StartAIPackage', {type='Combat', target=self})
-                        elseif state.guardInCombat and state.guard and state.guard.id == actor.id then
-                            log("*** INVISIBILITY DETECTED DURING COMBAT - STARTING SEARCH ***")
-                            actions.startSearch(state, detection, config)
+                            if inv and inv.magnitude and inv.magnitude > 0 and not detection.removedEffects[config.EFFECT_INVIS] then
+                                log("*** REMOVING INVISIBILITY ***")
+
+                                types.Actor.activeEffects(self):remove(config.EFFECT_INVIS)
+                                detection.removedEffects[config.EFFECT_INVIS] = true
+                                state.justRemovedInvisibility = true
+
+                                self:sendEvent('AddVfx', { model = "meshes/e/magic_cast_ill.NIF" })
+                                core.sound.playSoundFile3d("Fx/magic/illusFail.wav", self)
+                                lowerCellDisposition()
+
+                                -- If NPC was in combat with player before invisibility, resume combat (after state is set)
+                                if state.wasInCombatWithPlayer and state.guard and state.guard.id == actor.id then
+                                    log("*** RESUMING COMBAT AFTER INVISIBILITY REMOVAL ***")
+                                    state.guardInCombat = true
+                                    state.guard:sendEvent('StartAIPackage', {type='Combat', target=self})
+                                elseif state.guardInCombat and state.guard and state.guard.id == actor.id then
+                                    log("*** INVISIBILITY DETECTED DURING COMBAT - STARTING SEARCH ***")
+                                    actions.startSearch(state, detection, config)
+                                elseif state.searching and state.guard and state.guard.id == actor.id then
+                                    log("*** INVISIBILITY REMOVED DURING SEARCH - FORCING NPC TO PLAYER POSITION ***")
+                                    -- Send NPC directly to player's current position to force detection and recruitment
+                                    state.guard:sendEvent('StartAIPackage', {
+                                        type = 'Travel',
+                                        destPosition = self.position,
+                                        cancelOther = true
+                                    })
+                                    -- Extend search time to allow travel
+                                    if state.searchTime then
+                                        state.searchTime = state.searchTime + 10
+                                        log("Extended search time by 10 seconds to allow travel to player")
+                                    end
+                                end
+
+                                log("*** INVISIBILITY REMOVED ***")
+                            elseif cham and chamMag >= config.CHAM_HIDE_LIMIT and not detection.removedEffects[config.EFFECT_CHAM] then
+                                log("*** REMOVING CHAMELEON ***")
+
+                                types.Actor.activeEffects(self):remove(config.EFFECT_CHAM)
+                                detection.removedEffects[config.EFFECT_CHAM] = true
+                                state.justRemovedChameleon = true
+
+                                self:sendEvent('AddVfx', { model = "meshes/e/magic_cast_ill.NIF" })
+                                core.sound.playSoundFile3d("Fx/magic/illusFail.wav", self)
+                                lowerCellDisposition()
+
+                                if state.searching and state.guard and state.guard.id == actor.id then
+                                    log("*** CHAMELEON REMOVED DURING SEARCH - FORCING NPC TO PLAYER POSITION ***")
+                                    -- Send NPC directly to player's current position to force detection and recruitment
+                                    state.guard:sendEvent('StartAIPackage', {
+                                        type = 'Travel',
+                                        destPosition = self.position,
+                                        cancelOther = true
+                                    })
+                                    -- Extend search time to allow travel
+                                    if state.searchTime then
+                                        state.searchTime = state.searchTime + 10
+                                        log("Extended search time by 10 seconds to allow travel to player")
+                                    end
+                                end
+
+                                log("*** CHAMELEON REMOVED ***")
+                            end
+                        else
+                            log("[SPELL REMOVAL] Within removal range of NPC", actor.id, "- distance:", math.floor(distance), "chamMag:", chamMag, "chamRange:", math.floor(chamRemovalRange), "- but NPC cannot see player (blocked by walls/objects)")
                         end
-
-                        log("*** INVISIBILITY REMOVED ***")
-                    elseif cham and chamMag >= config.CHAM_HIDE_LIMIT and not detection.removedEffects[config.EFFECT_CHAM] then
-                        log("*** REMOVING CHAMELEON ***")
-
-                        types.Actor.activeEffects(self):remove(config.EFFECT_CHAM)
-                        detection.removedEffects[config.EFFECT_CHAM] = true
-                        state.justRemovedChameleon = true
-
-                        self:sendEvent('AddVfx', { model = "meshes/e/magic_cast_ill.NIF" })
-                        core.sound.playSoundFile3d("Fx/magic/illusFail.wav", self)
-                        lowerCellDisposition()
-
-                        log("*** CHAMELEON REMOVED ***")
                     end
                 end
             end
+        else
+            -- Player moved away from NPCs - reset removal flags so effects can be removed again when player gets close
+            detection.removedEffects[config.EFFECT_INVIS] = nil
+            detection.removedEffects[config.EFFECT_CHAM] = nil
         end
     end
 
@@ -1178,8 +1828,17 @@ local function onUpdate(dt)
     -- Check if invisibility effect just wore off while NPC is searching
     if state.wasHidden and not isHidden and state.searching and state.guard and state.guard:isValid() then
         if not detection.canNpcSeePlayer(state.guard, self, nearby, types, config) then
-            log("*** INVISIBILITY EFFECT WORE OFF, NPC SEARCHING BUT NO LOS - DISBANDING AND RETURNING HOME ***")
-            actions.goHome(state, core)
+            log("*** INVISIBILITY EFFECT WORE OFF, NPC SEARCHING BUT NO LOS - DISBANDING AND RETURNING HOME (in 2.5s) ***")
+            local guardId = state.guard.id
+            async:registerTimerCallback("InvisibilityWoreOff_" .. guardId, function()
+                -- Verify guard is still valid and in searching state
+                if state.guard and state.guard:isValid() and state.guard.id == guardId and state.searching then
+                    log("*** EXECUTING DELAYED DISBAND - RETURNING HOME ***")
+                    actions.goHome(state, core)
+                else
+                    log("*** DELAYED DISBAND CANCELLED - Guard state changed ***")
+                end
+            end, 2.5)
         end
     end
 
@@ -1317,17 +1976,15 @@ local function onUpdate(dt)
         return true
     end
 
-    -- Same-cell door transitions
-    if state.guard and state.guard:isValid() and isCellAllowed() and self.cell == state.lastPlayerCell then
-        local transitionDetected, doorUsed = doorModule.detectDoorTransition(state.lastPlayerPosition, self.position, nearby, types)
 
-        if transitionDetected then
-            log("═══════════════════════════════════════════════════")
-            log("SAME-CELL DOOR TRANSITION DETECTED!")
-            doorModule.teleportGuardThroughDoor(state.guard.id, self.position, self.cell, self.cell, core, util)
-            state.lastSeenPlayer = self.position
-            log("  ✓ Guard teleported through same-cell door")
-            log("═══════════════════════════════════════════════════")
+
+    -- Check for door transitions (intra-cell teleport via door activation)
+    if state.lastPlayerPosition and state.guard and state.guard:isValid() and state.following then
+        local transitionDetected, door = doorModule.detectDoorTransition(state.lastPlayerPosition, self.position, nearby, types)
+        if transitionDetected and door then
+            log("[DOOR TRANSITION] Detected player moved through door", door.id, "- teleporting guard")
+            -- Pass state.lastPlayerPosition as the return position (entrance)
+            doorModule.teleportGuardThroughDoor(state.guard.id, self.position, self.cell, self.cell, core, util, state.lastPlayerPosition)
         end
     end
 
@@ -1354,6 +2011,15 @@ local function onUpdate(dt)
 
     -- Monitor returning NPCs
     crossCell.monitorReturningNPCsLOS(state, nearby, detection, actions, self, types, config, core)
+
+    -- Check for door state changes (lock spell bounty detection)
+    if self.cell and not self.cell.isExterior and nearby.objects then
+        checkDoorStateChanges()
+    end
+
+
+
+
 
     -- Guard behavior
     if state.guard and state.guard:isValid() then
@@ -1402,8 +2068,11 @@ local function onUpdate(dt)
                 end
             end
 
-            -- Check if player becomes invisible
-            if isMagicHidden and not state.justRecruitedAfterReturn then
+            -- Skip normal following logic if investigating door
+            if state.investigatingDoor then
+                -- Door investigation in progress - don't follow player
+                log("[DOOR INVESTIGATION] Skipping normal following - door investigation active")
+            elseif isMagicHidden and not state.justRecruitedAfterReturn then
                 if state.skipSearch then
                     state.skipSearch = false
                     log("Skipping search start due to cell change - player left cell")
@@ -1469,6 +2138,21 @@ local function onUpdate(dt)
                 end
             end
 
+            -- Check door investigation progress
+            if state.investigatingDoor and state.doorPosition then
+                local distanceToDoor = (state.guard.position - state.doorPosition):length()
+                log("[DOOR INVESTIGATION] Distance to door: " .. string.format("%.1f", distanceToDoor) .. " units")
+                if distanceToDoor <= 550 then
+                    log("[DOOR INVESTIGATION] NPC reached door investigation position (<=550 units), removing AI packages for 15 seconds")
+                    state.guard:sendEvent('RemoveAIPackages')
+                    state.investigatingDoor = false
+                    async:registerTimerCallback("DoorInvestigationComplete", function()
+                        log("[DOOR INVESTIGATION] 15-second wait complete, re-recruiting NPC")
+                        core.sendGlobalEvent('AntiTheft_ReRecruitGuard', {npcId = state.guard.id})
+                    end, 15.0)
+                end
+            end
+
             -- Clear the just recruited flag after processing
             state.justRecruitedAfterReturn = false
 
@@ -1481,8 +2165,17 @@ local function onUpdate(dt)
             -- Check if invisibility effect just wore off while NPC is searching
             if state.wasHidden and not isHidden and state.searching and state.guard and state.guard:isValid() then
                 if not detection.canNpcSeePlayer(state.guard, self, nearby, types, config) then
-                    log("*** INVISIBILITY EFFECT WORE OFF, NPC SEARCHING BUT NO LOS - DISBANDING AND RETURNING HOME ***")
-                    actions.goHome(state, core)
+                    log("*** INVISIBILITY EFFECT WORE OFF, NPC SEARCHING BUT NO LOS - DISBANDING AND RETURNING HOME (in 2.5s) ***")
+                    local guardId = state.guard.id
+                    async:registerTimerCallback("InvisibilityWoreOffSearch_" .. guardId, function()
+                        -- Verify guard is still valid and in searching state
+                        if state.guard and state.guard:isValid() and state.guard.id == guardId and state.searching then
+                            log("*** EXECUTING DELAYED DISBAND - RETURNING HOME ***")
+                            actions.goHome(state, core)
+                        else
+                            log("*** DELAYED DISBAND CANCELLED - Guard state changed ***")
+                        end
+                    end, 2.5)
                     return
                 end
             end
@@ -1508,6 +2201,7 @@ local function onUpdate(dt)
                     state.stealthMessageSent = true
                 end
                 -- Clear search state and resume appropriate behavior
+                core.sendGlobalEvent('AntiTheft_CancelSearchTimer', { npcId = state.guard.id })
                 state.searching = false
                 state.searchT = 0
                 state.searchTime = nil
@@ -1535,6 +2229,7 @@ local function onUpdate(dt)
                     -- Start combat AI package to attack the player
                     state.guard:sendEvent('StartAIPackage', {type='Combat', target=self})
                     -- Clear search state
+                    core.sendGlobalEvent('AntiTheft_CancelSearchTimer', { npcId = state.guard.id })
                     state.searching = false
                     state.searchT = 0
                     state.searchTime = nil
@@ -1545,6 +2240,7 @@ local function onUpdate(dt)
                     actions.goHome(state, core)
                     -- Clear search state after returning home to prevent endless search loop
                     if state.hasReturnedHome then
+                        core.sendGlobalEvent('AntiTheft_CancelSearchTimer', { npcId = state.guard.id })
                         state.searching = false
                         state.hasReturnedHome = false
                         log("*** SEARCH CANCELLED AFTER RETURNING HOME ***")
@@ -1563,14 +2259,97 @@ end
 log("=== SCRIPT LOADED SUCCESSFULLY v20.0 - MODULAR ===")
 
 ----------------------------------------------------------------------
+-- Offset vectors for LOS (from detection.lua)
+local vEye   = util.vector3(0, 0, 90)
+
+-- Door detection on Activate key press
+local function onInputAction(action)
+    if action == input.ACTION.Activate then
+        log("[DOOR DETECTION] Activate key pressed - sending detection event to global script")
+        core.sendGlobalEvent('AntiTheft_DoorDetection', {})
+    end
+    if action == input.ACTION.Use then
+        log("[DOOR DETECTION] Use key pressed - triggering global door detection")
+
+    -- Send event to global script to check for door lock changes
+    core.sendGlobalEvent('AntiTheft_CheckDoorLocks', {
+        delay = 1.9  -- Check after 1.9 seconds for lock action to complete
+    })
+
+        doorStatesRecorded = false  -- Reset flag after use
+
+        log("[DOOR DETECTION] Global door detection triggered")
+    end
+end
+
 return {
     engineHandlers = {
-        onUpdate = onUpdate
+         onUpdate = onUpdate,
+        onInputAction = onInputAction
     },
     eventHandlers = {
         AntiTheft_NPCReady = onNPCReady,
         AntiTheft_ClearSearchState = onClearSearchState,
         AntiTheft_MagicEffectApplied = onMagicEffectApplied,
+        AntiTheft_CheckLockSpellBounty = onCheckLockSpellBounty,
+        AntiTheft_ApplyDoorBounty = onApplyDoorBounty,
+        AntiTheft_StartDoorInvestigation = onStartDoorInvestigation,
+        AntiTheft_ClearGuardState = function(data)
+            if not data or not data.npcId then return end
+            log("[DOOR INVESTIGATION] Clearing guard state for NPC:", data.npcId)
+            state.following = false
+            core.sendGlobalEvent('AntiTheft_CancelSearchTimer', { npcId = state.guard.id })
+            state.searching = false
+            state.returningHome = false
+            state.guard = nil
+            state.guardPriority = 999
+            log("✓ Guard state cleared for NPC", data.npcId)
+        end,
+        AntiTheft_ReRecruitGuard = onReRecruitGuard,
+        AntiTheft_StartSearchForPlayer = function(data)
+            if not data or not data.npcId then return end
+            if state.guard and state.guard.id == data.npcId then
+                actions.startSearch(state, detection, config)
+            end
+        end,
+        AntiTheft_ForceTravelToPlayer = function(data)
+            if not data or not data.npcId then return end
+            local npc = world.getObjectByFormId(data.npcId)
+            if npc and npc.type == types.NPC then
+                log("[FORCE TRAVEL] Sending NPC", data.npcId, "to travel to player position")
+                npc:sendEvent('StartAIPackage', {
+                    type = 'Travel',
+                    destPosition = data.playerPosition,
+                    cancelOther = false
+                })
+            end
+        end,
+        AntiTheft_StartLOSMonitoring = function(data)
+            if not (data and data.npcId and data.bountyAmount and data.doorId) then 
+                log("[LOS MONITORING] Invalid data received")
+                return 
+            end
+            
+            log("[LOS MONITORING] Starting continuous LoS monitoring for NPC", data.npcId, "on door", data.doorId)
+            
+            pendingBountyMonitoring[data.doorId] = {
+                npcId = data.npcId,
+                bountyAmount = data.bountyAmount,
+                startTime = core.getRealTime(),
+                doorPosition = data.doorPosition,
+                maxDuration = 15  -- Monitor for max 15 seconds
+            }
+            
+            log("[LOS MONITORING] Monitoring started - will check LoS continuously until NPC sees player or timeout")
+        end,
+        AntiTheft_StopLOSMonitoring = function(data)
+            if not (data and data.doorId) then return end
+            
+            if pendingBountyMonitoring[data.doorId] then
+                log("[LOS MONITORING] Stopping LoS monitoring for door", data.doorId)
+                pendingBountyMonitoring[data.doorId] = nil
+            end
+        end,
         S3CombatTargetAdded = onS3CombatTargetAdded,
         S3CombatTargetRemoved = onS3CombatTargetRemoved
     }
