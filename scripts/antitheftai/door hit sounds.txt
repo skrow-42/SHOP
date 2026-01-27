@@ -1,0 +1,7 @@
+bash
+sound/fx/item/repFail.wav
+sound/fx/item/armhitH.wav
+sound/fx/item/armhitM.wav
+sound/fx/item/armhitM.wav
+sound/fx/Heavy Armor Hit.wav
+sound/fx/Medium Armor Hit.wav

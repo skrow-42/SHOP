@@ -1,0 +1,3041 @@
+
+Plugin: Morrowind.esm
+
+Record: SOUN "stone door open 1" Flags:0x0000 ()
+  NAME: ID:Stone Door Open 1
+  FNAM: Filename:Fx\Stone01.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "disarm trap" Flags:0x0000 ()
+  NAME: ID:Disarm Trap
+  FNAM: Filename:Fx\disarm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "light armor hit" Flags:0x0000 ()
+  NAME: ID:Light Armor Hit
+  FNAM: Filename:Fx\Light Armor Hit.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "heavy armor hit" Flags:0x0000 ()
+  NAME: ID:Heavy Armor Hit
+  FNAM: Filename:Fx\Heavy Armor Hit.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "health damage" Flags:0x0000 ()
+  NAME: ID:Health Damage
+  FNAM: Filename:Fx\body hit.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "hand to hand hit" Flags:0x0000 ()
+  NAME: ID:Hand To Hand Hit
+  FNAM: Filename:Fx\punch 1.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "medium armor hit" Flags:0x0000 ()
+  NAME: ID:Medium Armor Hit
+  FNAM: Filename:Fx\Medium Armor Hit.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "pack" Flags:0x0000 ()
+  NAME: ID:Pack
+  FNAM: Filename:Fx\Bodyfal1.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "body fall small" Flags:0x0000 ()
+  NAME: ID:Body Fall Small
+  FNAM: Filename:Fx\bodyfallSML.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "body fall medium" Flags:0x0000 ()
+  NAME: ID:Body Fall Medium
+  FNAM: Filename:Fx\bodyfallMED.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "body fall large" Flags:0x0000 ()
+  NAME: ID:Body Fall Large
+  FNAM: Filename:Fx\bodyfallHVY.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "thunderclap" Flags:0x0000 ()
+  NAME: ID:ThunderClap
+  FNAM: Filename:Fx\_Thunder1.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "wooden door open 1" Flags:0x0000 ()
+  NAME: ID:Wooden Door Open 1
+  FNAM: Filename:Fx\trans\drcreak_cls.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "wooden door close 1" Flags:0x0000 ()
+  NAME: ID:Wooden Door Close 1
+  FNAM: Filename:Fx\trans\drcreak_opn.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "open lock" Flags:0x0000 ()
+  NAME: ID:Open Lock
+  FNAM: Filename:Fx\trans\chain_pul2.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "disarm trap fail" Flags:0x0000 ()
+  NAME: ID:Disarm Trap Fail
+  FNAM: Filename:Fx\trans\lever.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "open lock fail" Flags:0x0000 ()
+  NAME: ID:Open Lock Fail
+  FNAM: Filename:Fx\trans\lever.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "thunder3" Flags:0x0000 ()
+  NAME: ID:Thunder3
+  FNAM: Filename:Fx\envrn\thndr_far2.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "sound test" Flags:0x0000 ()
+  NAME: ID:Sound Test
+  FNAM: Filename:Fx\Jetsons Doorbell.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "sound test loop" Flags:0x0000 ()
+  NAME: ID:Sound Test Loop
+  FNAM: Filename:Fx\enghum.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "cave wind" Flags:0x0000 ()
+  NAME: ID:Cave Wind
+  FNAM: Filename:Fx\envrn\cave_wind.wav
+  DATA: Volume:0.80  Min_Range:5  Max_Range:30
+
+Record: SOUN "cave drip" Flags:0x0000 ()
+  NAME: ID:Cave Drip
+  FNAM: Filename:Fx\envrn\cave_drip.wav
+  DATA: Volume:0.80  Min_Range:5  Max_Range:30
+
+Record: SOUN "underwater" Flags:0x0000 ()
+  NAME: ID:Underwater
+  FNAM: Filename:Fx\envrn\undrwatr.wav
+  DATA: Volume:0.70  Min_Range:0  Max_Range:0
+
+Record: SOUN "fire" Flags:0x0000 ()
+  NAME: ID:Fire
+  FNAM: Filename:Fx\envrn\fire.wav
+  DATA: Volume:0.80  Min_Range:2  Max_Range:15
+
+Record: SOUN "flag" Flags:0x0000 ()
+  NAME: ID:Flag
+  FNAM: Filename:Fx\envrn\flag2.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "boat hull" Flags:0x0000 ()
+  NAME: ID:Boat Hull
+  FNAM: Filename:Fx\envrn\boat_waves.wav
+  DATA: Volume:0.70  Min_Range:0  Max_Range:0
+
+Record: SOUN "rain" Flags:0x0000 ()
+  NAME: ID:Rain
+  FNAM: Filename:Fx\envrn\rain.wav
+  DATA: Volume:0.80  Min_Range:0  Max_Range:0
+
+Record: SOUN "ashstorm" Flags:0x0000 ()
+  NAME: ID:Ashstorm
+  FNAM: Filename:Fx\envrn\wind_hvy.wav
+  DATA: Volume:0.50  Min_Range:0  Max_Range:0
+
+Record: SOUN "wind light" Flags:0x0000 ()
+  NAME: ID:Wind Light
+  FNAM: Filename:Fx\envrn\wind_lt.wav
+  DATA: Volume:0.60  Min_Range:0  Max_Range:0
+
+Record: SOUN "door creaky open" Flags:0x0000 ()
+  NAME: ID:Door Creaky Open
+  FNAM: Filename:Fx\trans\drcreak_opn.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "door creaky close" Flags:0x0000 ()
+  NAME: ID:Door Creaky Close
+  FNAM: Filename:Fx\trans\drcreak_cls.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "door heavy open" Flags:0x0000 ()
+  NAME: ID:Door Heavy Open
+  FNAM: Filename:Fx\trans\drhvy_opn.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "door heavy close" Flags:0x0000 ()
+  NAME: ID:Door Heavy Close
+  FNAM: Filename:Fx\trans\drhvy_cls.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "door metal open" Flags:0x0000 ()
+  NAME: ID:Door Metal Open
+  FNAM: Filename:Fx\trans\drmtl_opn.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "door metal close" Flags:0x0000 ()
+  NAME: ID:Door Metal Close
+  FNAM: Filename:Fx\trans\drmtl_cls.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "door stone close" Flags:0x0000 ()
+  NAME: ID:Door Stone Close
+  FNAM: Filename:Fx\trans\drstn_cls.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "door latched one open" Flags:0x0000 ()
+  NAME: ID:Door Latched One Open
+  FNAM: Filename:Fx\trans\drlatch_opn.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "door latched two open" Flags:0x0000 ()
+  NAME: ID:Door Latched Two Open
+  FNAM: Filename:Fx\trans\drlatch_opn2.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "door latched one close" Flags:0x0000 ()
+  NAME: ID:Door Latched One Close
+  FNAM: Filename:Fx\trans\drlatch_cls.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "door latched two close" Flags:0x0000 ()
+  NAME: ID:Door Latched Two Close
+  FNAM: Filename:Fx\trans\drlatch_cls2.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "heart" Flags:0x0000 ()
+  NAME: ID:Heart
+  FNAM: Filename:Fx\heart.wav
+  DATA: Volume:0.90  Min_Range:150  Max_Range:255
+
+Record: SOUN "menu click" Flags:0x0000 ()
+  NAME: ID:Menu Click
+  FNAM: Filename:Fx\menu click.wav
+  DATA: Volume:0.50  Min_Range:0  Max_Range:0
+
+Record: SOUN "menu size" Flags:0x0000 ()
+  NAME: ID:Menu Size
+  FNAM: Filename:Fx\Maximize.wav
+  DATA: Volume:0.80  Min_Range:0  Max_Range:0
+
+Record: SOUN "item apparatus up" Flags:0x0000 ()
+  NAME: ID:Item Apparatus Up
+  FNAM: Filename:Fx\item\item.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "item apparatus down" Flags:0x0000 ()
+  NAME: ID:Item Apparatus Down
+  FNAM: Filename:Fx\item\item.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "item armor light up" Flags:0x0000 ()
+  NAME: ID:Item Armor Light Up
+  FNAM: Filename:Fx\item\armrlite.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "item armor light down" Flags:0x0000 ()
+  NAME: ID:Item Armor Light Down
+  FNAM: Filename:Fx\item\armrlite.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "item armor medium up" Flags:0x0000 ()
+  NAME: ID:Item Armor Medium Up
+  FNAM: Filename:Fx\item\armrmed.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "item armor medium down" Flags:0x0000 ()
+  NAME: ID:Item Armor Medium Down
+  FNAM: Filename:Fx\item\armrmed.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "item bodypart up" Flags:0x0000 ()
+  NAME: ID:Item Bodypart Up
+  FNAM: Filename:Fx\item\item.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "item bodypart down" Flags:0x0000 ()
+  NAME: ID:Item Bodypart Down
+  FNAM: Filename:Fx\item\item.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "item book up" Flags:0x0000 ()
+  NAME: ID:Item Book Up
+  FNAM: Filename:Fx\item\bookopen.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "item book down" Flags:0x0000 ()
+  NAME: ID:Item Book Down
+  FNAM: Filename:Fx\item\bookclose.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "item clothes up" Flags:0x0000 ()
+  NAME: ID:Item Clothes Up
+  FNAM: Filename:Fx\item\clothes.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "item clothes down" Flags:0x0000 ()
+  NAME: ID:Item Clothes Down
+  FNAM: Filename:Fx\item\clothes.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "item ingredient up" Flags:0x0000 ()
+  NAME: ID:Item Ingredient Up
+  FNAM: Filename:Fx\item\item.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "item ingredient down" Flags:0x0000 ()
+  NAME: ID:Item Ingredient Down
+  FNAM: Filename:Fx\item\item.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "item lockpick up" Flags:0x0000 ()
+  NAME: ID:Item Lockpick Up
+  FNAM: Filename:Fx\item\shrtblad.wav
+  DATA: Volume:0.70  Min_Range:0  Max_Range:0
+
+Record: SOUN "item lockpick down" Flags:0x0000 ()
+  NAME: ID:Item Lockpick Down
+  FNAM: Filename:Fx\item\shrtblad.wav
+  DATA: Volume:0.70  Min_Range:0  Max_Range:0
+
+Record: SOUN "item misc up" Flags:0x0000 ()
+  NAME: ID:Item Misc Up
+  FNAM: Filename:Fx\item\item.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "item misc down" Flags:0x0000 ()
+  NAME: ID:Item Misc Down
+  FNAM: Filename:Fx\item\item.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "item probe up" Flags:0x0000 ()
+  NAME: ID:Item Probe Up
+  FNAM: Filename:Fx\item\shrtblad.wav
+  DATA: Volume:0.70  Min_Range:0  Max_Range:0
+
+Record: SOUN "item probe down" Flags:0x0000 ()
+  NAME: ID:Item Probe Down
+  FNAM: Filename:Fx\item\shrtblad.wav
+  DATA: Volume:0.70  Min_Range:0  Max_Range:0
+
+Record: SOUN "item repair up" Flags:0x0000 ()
+  NAME: ID:Item Repair Up
+  FNAM: Filename:Fx\item\shrtblad.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "item repair down" Flags:0x0000 ()
+  NAME: ID:Item Repair Down
+  FNAM: Filename:Fx\item\shrtblad.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "item ammo up" Flags:0x0000 ()
+  NAME: ID:Item Ammo Up
+  FNAM: Filename:Fx\item\arrow.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "item ammo down" Flags:0x0000 ()
+  NAME: ID:Item Ammo Down
+  FNAM: Filename:Fx\item\arrow2.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "item gold up" Flags:0x0000 ()
+  NAME: ID:Item Gold Up
+  FNAM: Filename:Fx\item\money.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "item gold down" Flags:0x0000 ()
+  NAME: ID:Item Gold Down
+  FNAM: Filename:Fx\item\money.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "footwaterleft" Flags:0x0000 ()
+  NAME: ID:FootWaterLeft
+  FNAM: Filename:Fx\FOOT\swimLEFT.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "footwaterright" Flags:0x0000 ()
+  NAME: ID:FootWaterRight
+  FNAM: Filename:Fx\FOOT\swimRIGHT.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "default roar" Flags:0x0000 ()
+  NAME: ID:Default Roar
+  FNAM: Filename:Cr\alit\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "default scream" Flags:0x0000 ()
+  NAME: ID:Default Scream
+  FNAM: Filename:Cr\alit\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "default moan" Flags:0x0000 ()
+  NAME: ID:Default Moan
+  FNAM: Filename:Cr\alit\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "swim left" Flags:0x0000 ()
+  NAME: ID:Swim Left
+  FNAM: Filename:Fx\FOOT\swimLEFT.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "swim right" Flags:0x0000 ()
+  NAME: ID:Swim Right
+  FNAM: Filename:Fx\FOOT\swimRIGHT.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "illusion bolt" Flags:0x0000 ()
+  NAME: ID:illusion bolt
+  FNAM: Filename:Fx\magic\illuT.wav
+  DATA: Volume:1.00  Min_Range:30  Max_Range:100
+
+Record: SOUN "illusion cast" Flags:0x0000 ()
+  NAME: ID:illusion cast
+  FNAM: Filename:Fx\magic\illuC.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "illusion hit" Flags:0x0000 ()
+  NAME: ID:illusion hit
+  FNAM: Filename:Fx\magic\illuH.wav
+  DATA: Volume:1.00  Min_Range:30  Max_Range:100
+
+Record: SOUN "mysticism bolt" Flags:0x0000 ()
+  NAME: ID:mysticism bolt
+  FNAM: Filename:Fx\magic\mystT.wav
+  DATA: Volume:1.00  Min_Range:30  Max_Range:100
+
+Record: SOUN "mysticism cast" Flags:0x0000 ()
+  NAME: ID:mysticism cast
+  FNAM: Filename:Fx\magic\mystC.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "mysticism hit" Flags:0x0000 ()
+  NAME: ID:mysticism hit
+  FNAM: Filename:Fx\magic\mystH.wav
+  DATA: Volume:1.00  Min_Range:30  Max_Range:100
+
+Record: SOUN "restoration bolt" Flags:0x0000 ()
+  NAME: ID:restoration bolt
+  FNAM: Filename:Fx\magic\restT.wav
+  DATA: Volume:1.00  Min_Range:30  Max_Range:100
+
+Record: SOUN "restoration cast" Flags:0x0000 ()
+  NAME: ID:restoration cast
+  FNAM: Filename:Fx\magic\restC.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "restoration hit" Flags:0x0000 ()
+  NAME: ID:restoration hit
+  FNAM: Filename:Fx\magic\restH.wav
+  DATA: Volume:1.00  Min_Range:30  Max_Range:100
+
+Record: SOUN "alteration bolt" Flags:0x0000 ()
+  NAME: ID:alteration bolt
+  FNAM: Filename:Fx\magic\altrT.wav
+  DATA: Volume:1.00  Min_Range:30  Max_Range:100
+
+Record: SOUN "alteration cast" Flags:0x0000 ()
+  NAME: ID:alteration cast
+  FNAM: Filename:Fx\magic\altrC.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "alteration hit" Flags:0x0000 ()
+  NAME: ID:alteration hit
+  FNAM: Filename:Fx\magic\altrH.wav
+  DATA: Volume:1.00  Min_Range:30  Max_Range:100
+
+Record: SOUN "conjuration bolt" Flags:0x0000 ()
+  NAME: ID:conjuration bolt
+  FNAM: Filename:Fx\magic\conjT.wav
+  DATA: Volume:1.00  Min_Range:30  Max_Range:100
+
+Record: SOUN "conjuration cast" Flags:0x0000 ()
+  NAME: ID:conjuration cast
+  FNAM: Filename:Fx\magic\conjC.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "conjuration hit" Flags:0x0000 ()
+  NAME: ID:conjuration hit
+  FNAM: Filename:Fx\magic\conjH.wav
+  DATA: Volume:1.00  Min_Range:30  Max_Range:100
+
+Record: SOUN "destruction bolt" Flags:0x0000 ()
+  NAME: ID:destruction bolt
+  FNAM: Filename:Fx\magic\destT.wav
+  DATA: Volume:1.00  Min_Range:30  Max_Range:100
+
+Record: SOUN "destruction cast" Flags:0x0000 ()
+  NAME: ID:destruction cast
+  FNAM: Filename:Fx\magic\destC.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "destruction hit" Flags:0x0000 ()
+  NAME: ID:destruction hit
+  FNAM: Filename:Fx\magic\destH.wav
+  DATA: Volume:1.00  Min_Range:30  Max_Range:100
+
+Record: SOUN "conjuration area" Flags:0x0000 ()
+  NAME: ID:conjuration area
+  FNAM: Filename:Fx\magic\conjA.wav
+  DATA: Volume:1.00  Min_Range:30  Max_Range:90
+
+Record: SOUN "alteration area" Flags:0x0000 ()
+  NAME: ID:alteration area
+  FNAM: Filename:Fx\magic\altrA.wav
+  DATA: Volume:1.00  Min_Range:30  Max_Range:90
+
+Record: SOUN "destruction area" Flags:0x0000 ()
+  NAME: ID:destruction area
+  FNAM: Filename:Fx\magic\destA.wav
+  DATA: Volume:1.00  Min_Range:30  Max_Range:90
+
+Record: SOUN "illusion area" Flags:0x0000 ()
+  NAME: ID:illusion area
+  FNAM: Filename:Fx\magic\illuA.wav
+  DATA: Volume:1.00  Min_Range:30  Max_Range:90
+
+Record: SOUN "mysticism area" Flags:0x0000 ()
+  NAME: ID:mysticism area
+  FNAM: Filename:Fx\magic\mystA.wav
+  DATA: Volume:1.00  Min_Range:30  Max_Range:90
+
+Record: SOUN "restoration area" Flags:0x0000 ()
+  NAME: ID:restoration area
+  FNAM: Filename:Fx\magic\restA.wav
+  DATA: Volume:1.00  Min_Range:30  Max_Range:90
+
+Record: SOUN "blackoutin" Flags:0x0000 ()
+  NAME: ID:blackoutin
+  FNAM: Filename:Fx\envrn\blackoutin.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "leftl" Flags:0x0000 ()
+  NAME: ID:LeftL
+  FNAM: Filename:Fx\FOOT\walkl_lt.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "rights" Flags:0x0000 ()
+  NAME: ID:RightS
+  FNAM: Filename:Fx\FOOT\walkr_br.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "rightl" Flags:0x0000 ()
+  NAME: ID:RightL
+  FNAM: Filename:Fx\FOOT\walkr_lt.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "rightm" Flags:0x0000 ()
+  NAME: ID:RightM
+  FNAM: Filename:Fx\FOOT\walkr_md.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "footbareleft" Flags:0x0000 ()
+  NAME: ID:FootBareLeft
+  FNAM: Filename:Fx\FOOT\walkl_br.wav
+  DATA: Volume:0.90  Min_Range:0  Max_Range:0
+
+Record: SOUN "footbareright" Flags:0x0000 ()
+  NAME: ID:FootBareRight
+  FNAM: Filename:Fx\FOOT\walkr_br.wav
+  DATA: Volume:0.90  Min_Range:0  Max_Range:0
+
+Record: SOUN "footlightleft" Flags:0x0000 ()
+  NAME: ID:FootLightLeft
+  FNAM: Filename:Fx\FOOT\walkl_lt.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "footlightright" Flags:0x0000 ()
+  NAME: ID:FootLightRight
+  FNAM: Filename:Fx\FOOT\walkr_lt.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "footmedleft" Flags:0x0000 ()
+  NAME: ID:FootMedLeft
+  FNAM: Filename:Fx\FOOT\walkl_md.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "footmedright" Flags:0x0000 ()
+  NAME: ID:FootMedRight
+  FNAM: Filename:Fx\FOOT\walkr_md.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "footheavyleft" Flags:0x0000 ()
+  NAME: ID:FootHeavyLeft
+  FNAM: Filename:Fx\FOOT\walkl_hv.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "footheavyright" Flags:0x0000 ()
+  NAME: ID:FootHeavyRight
+  FNAM: Filename:Fx\FOOT\walkr_hv.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "spell failure alteration" Flags:0x0000 ()
+  NAME: ID:Spell Failure Alteration
+  FNAM: Filename:Fx\magic\altrFAIL.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "spell failure conjuration" Flags:0x0000 ()
+  NAME: ID:Spell Failure Conjuration
+  FNAM: Filename:Fx\magic\conjFAIL.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "spell failure destruction" Flags:0x0000 ()
+  NAME: ID:Spell Failure Destruction
+  FNAM: Filename:Fx\magic\destFAIL.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "spell failure illusion" Flags:0x0000 ()
+  NAME: ID:Spell Failure Illusion
+  FNAM: Filename:Fx\magic\illuFAIL.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "spell failure mysticism" Flags:0x0000 ()
+  NAME: ID:Spell Failure Mysticism
+  FNAM: Filename:Fx\magic\mystFAIL.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "spell failure restoration" Flags:0x0000 ()
+  NAME: ID:Spell Failure Restoration
+  FNAM: Filename:Fx\magic\restFAIL.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "repair" Flags:0x0000 ()
+  NAME: ID:Repair
+  FNAM: Filename:Fx\item\repair.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "power light" Flags:0x0000 ()
+  NAME: ID:Power Light
+  FNAM: Filename:Fx\envrn\power_light.wav
+  DATA: Volume:0.80  Min_Range:5  Max_Range:30
+
+Record: SOUN "bubbles" Flags:0x0000 ()
+  NAME: ID:Bubbles
+  FNAM: Filename:Fx\envrn\lava_flow2.wav
+  DATA: Volume:1.00  Min_Range:10  Max_Range:50
+
+Record: SOUN "creeky wood" Flags:0x0000 ()
+  NAME: ID:Creeky Wood
+  FNAM: Filename:Fx\envrn\boat_crk2.wav
+  DATA: Volume:0.80  Min_Range:0  Max_Range:0
+
+Record: SOUN "steam" Flags:0x0000 ()
+  NAME: ID:Steam
+  FNAM: Filename:Fx\envrn\steam.wav
+  DATA: Volume:0.70  Min_Range:5  Max_Range:40
+
+Record: SOUN "machinery" Flags:0x0000 ()
+  NAME: ID:Machinery
+  FNAM: Filename:Fx\envrn\factory.wav
+  DATA: Volume:1.00  Min_Range:5  Max_Range:30
+
+Record: SOUN "ambient factory ruins" Flags:0x0000 ()
+  NAME: ID:Ambient Factory Ruins
+  FNAM: Filename:Fx\envrn\factCREAK.wav
+  DATA: Volume:1.00  Min_Range:5  Max_Range:30
+
+Record: SOUN "spirit ambient voices" Flags:0x0000 ()
+  NAME: ID:Spirit Ambient Voices
+  FNAM: Filename:Fx\envrn\hauntedWHSPR.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "dwemer door open" Flags:0x0000 ()
+  NAME: ID:Dwemer Door Open
+  FNAM: Filename:Fx\trans\drfact_opn.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "dwemer door close" Flags:0x0000 ()
+  NAME: ID:Dwemer Door Close
+  FNAM: Filename:Fx\trans\drfact_cls.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "boat docked" Flags:0x0000 ()
+  NAME: ID:boat docked
+  FNAM: Filename:Fx\envrn\dockCREAK.wav
+  DATA: Volume:0.70  Min_Range:0  Max_Range:0
+
+Record: SOUN "boat creak" Flags:0x0000 ()
+  NAME: ID:Boat Creak
+  FNAM: Filename:Fx\envrn\dockCREAK.wav
+  DATA: Volume:0.70  Min_Range:0  Max_Range:0
+
+Record: SOUN "sound_boat_creak" Flags:0x0000 ()
+  NAME: ID:sound_boat_creak
+  FNAM: Filename:Fx\envrn\boat_crk4.wav
+  DATA: Volume:0.80  Min_Range:0  Max_Range:0
+
+Record: SOUN "daedric chant" Flags:0x0000 ()
+  NAME: ID:Daedric Chant
+  FNAM: Filename:Fx\envrn\chant.wav
+  DATA: Volume:1.00  Min_Range:5  Max_Range:60
+
+Record: SOUN "crystal ringing" Flags:0x0000 ()
+  NAME: ID:Crystal Ringing
+  FNAM: Filename:Fx\envrn\crystal1.wav
+  DATA: Volume:0.60  Min_Range:5  Max_Range:30
+
+Record: SOUN "haunted" Flags:0x0000 ()
+  NAME: ID:Haunted
+  FNAM: Filename:Fx\envrn\haunted.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "dock creak" Flags:0x0000 ()
+  NAME: ID:Dock Creak
+  FNAM: Filename:Fx\envrn\dockCREAK.wav
+  DATA: Volume:0.70  Min_Range:0  Max_Range:0
+
+Record: SOUN "skillraise" Flags:0x0000 ()
+  NAME: ID:skillraise
+  FNAM: Filename:Fx\inter\levelUP.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "lockeddoor" Flags:0x0000 ()
+  NAME: ID:LockedDoor
+  FNAM: Filename:Fx\trans\drlatch_lokd.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "lockedchest" Flags:0x0000 ()
+  NAME: ID:LockedChest
+  FNAM: Filename:Fx\trans\contnr_lokd.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "alitmoan" Flags:0x0000 ()
+  NAME: ID:alitMOAN
+  FNAM: Filename:Cr\alit\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "alitroar" Flags:0x0000 ()
+  NAME: ID:alitROAR
+  FNAM: Filename:Cr\alit\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "alitscrm" Flags:0x0000 ()
+  NAME: ID:alitSCRM
+  FNAM: Filename:Cr\alit\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "bonewalkermoan" Flags:0x0000 ()
+  NAME: ID:bonewalkerMOAN
+  FNAM: Filename:Cr\bnwlk\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "bonewalkerroar" Flags:0x0000 ()
+  NAME: ID:bonewalkerROAR
+  FNAM: Filename:Cr\bnwlk\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "bonewalkerscrm" Flags:0x0000 ()
+  NAME: ID:bonewalkerSCRM
+  FNAM: Filename:Cr\bnwlk\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "corpuslamemoan" Flags:0x0000 ()
+  NAME: ID:corpuslameMOAN
+  FNAM: Filename:Cr\corp\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "corpuslameroar" Flags:0x0000 ()
+  NAME: ID:corpuslameROAR
+  FNAM: Filename:Cr\corp\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "corpuslamescrm" Flags:0x0000 ()
+  NAME: ID:corpuslameSCRM
+  FNAM: Filename:Cr\corp\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "corpus stalker moan" Flags:0x0000 ()
+  NAME: ID:corpus stalker moan
+  FNAM: Filename:Cr\corpstlk\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "corpus stalker roar" Flags:0x0000 ()
+  NAME: ID:corpus stalker roar
+  FNAM: Filename:Cr\corpstlk\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "corpus stalker scream" Flags:0x0000 ()
+  NAME: ID:corpus stalker scream
+  FNAM: Filename:Cr\corpstlk\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "nix hound moan" Flags:0x0000 ()
+  NAME: ID:nix hound moan
+  FNAM: Filename:Cr\nix\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "nix hound roar" Flags:0x0000 ()
+  NAME: ID:nix hound roar
+  FNAM: Filename:Cr\nix\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "nix hound scream" Flags:0x0000 ()
+  NAME: ID:nix hound scream
+  FNAM: Filename:Cr\nix\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "kagouti moan" Flags:0x0000 ()
+  NAME: ID:kagouti moan
+  FNAM: Filename:Cr\kgout\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "kagouti roar" Flags:0x0000 ()
+  NAME: ID:kagouti roar
+  FNAM: Filename:Cr\kgout\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "kagouti scream" Flags:0x0000 ()
+  NAME: ID:kagouti scream
+  FNAM: Filename:Cr\kgout\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "cliff racer moan" Flags:0x0000 ()
+  NAME: ID:cliff racer moan
+  FNAM: Filename:Cr\cliffr\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "cliff racer roar" Flags:0x0000 ()
+  NAME: ID:cliff racer roar
+  FNAM: Filename:Cr\cliffr\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "cliff racer scream" Flags:0x0000 ()
+  NAME: ID:cliff racer scream
+  FNAM: Filename:Cr\cliffr\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "crossbowpull" Flags:0x0000 ()
+  NAME: ID:crossbowPull
+  FNAM: Filename:Fx\item\cbowpull.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "bowpull" Flags:0x0000 ()
+  NAME: ID:bowPull
+  FNAM: Filename:Fx\item\bowpull.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "bowshoot" Flags:0x0000 ()
+  NAME: ID:bowShoot
+  FNAM: Filename:Fx\item\bowshoot.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "door stone open" Flags:0x0000 ()
+  NAME: ID:Door Stone Open
+  FNAM: Filename:Fx\trans\drstn_opn.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "torch out" Flags:0x0000 ()
+  NAME: ID:Torch Out
+  FNAM: Filename:Fx\envrn\trch_out.wav
+  DATA: Volume:1.00  Min_Range:2  Max_Range:4
+
+Record: SOUN "swallow" Flags:0x0000 ()
+  NAME: ID:Swallow
+  FNAM: Filename:Fx\item\swallow.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "drink" Flags:0x0000 ()
+  NAME: ID:Drink
+  FNAM: Filename:Fx\item\drink.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "flies" Flags:0x0000 ()
+  NAME: ID:Flies
+  FNAM: Filename:Fx\envrn\flies.wav
+  DATA: Volume:0.50  Min_Range:0  Max_Range:0
+
+Record: SOUN "thunder0" Flags:0x0000 ()
+  NAME: ID:Thunder0
+  FNAM: Filename:Fx\envrn\thndr_cls3.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "thunder1" Flags:0x0000 ()
+  NAME: ID:Thunder1
+  FNAM: Filename:Fx\_Thunder0.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "thunder2" Flags:0x0000 ()
+  NAME: ID:Thunder2
+  FNAM: Filename:Fx\_Thunder1.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "silt_3" Flags:0x0000 ()
+  NAME: ID:Silt_3
+  FNAM: Filename:Cr\silt\silt03.wav
+  DATA: Volume:1.00  Min_Range:10  Max_Range:100
+
+Record: SOUN "cent spider moan" Flags:0x0000 ()
+  NAME: ID:cent spider moan
+  FNAM: Filename:Cr\centspd\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "cent spider roar" Flags:0x0000 ()
+  NAME: ID:cent spider roar
+  FNAM: Filename:Cr\centspd\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "cent spider scream" Flags:0x0000 ()
+  NAME: ID:cent spider scream
+  FNAM: Filename:Cr\centspd\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "cent steam moan" Flags:0x0000 ()
+  NAME: ID:cent steam moan
+  FNAM: Filename:Cr\centstm\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "cent steam roar" Flags:0x0000 ()
+  NAME: ID:cent steam roar
+  FNAM: Filename:Cr\centstm\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "cent steam scream" Flags:0x0000 ()
+  NAME: ID:cent steam scream
+  FNAM: Filename:Cr\centstm\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "cent sphere moan" Flags:0x0000 ()
+  NAME: ID:cent sphere moan
+  FNAM: Filename:Cr\centsphr\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "cent sphere roar" Flags:0x0000 ()
+  NAME: ID:cent sphere roar
+  FNAM: Filename:Cr\centsphr\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "cent sphere scream" Flags:0x0000 ()
+  NAME: ID:cent sphere scream
+  FNAM: Filename:Cr\centsphr\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "scamp moan" Flags:0x0000 ()
+  NAME: ID:scamp moan
+  FNAM: Filename:Cr\scamp\moan.wav
+  DATA: Volume:0.80  Min_Range:0  Max_Range:0
+
+Record: SOUN "scamp roar" Flags:0x0000 ()
+  NAME: ID:scamp roar
+  FNAM: Filename:Cr\scamp\roar.wav
+  DATA: Volume:0.80  Min_Range:0  Max_Range:0
+
+Record: SOUN "scamp scream" Flags:0x0000 ()
+  NAME: ID:scamp scream
+  FNAM: Filename:Cr\scamp\scrm.wav
+  DATA: Volume:0.80  Min_Range:0  Max_Range:0
+
+Record: SOUN "winged twil moan" Flags:0x0000 ()
+  NAME: ID:winged twil moan
+  FNAM: Filename:Cr\wngtwl\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "winged twil roar" Flags:0x0000 ()
+  NAME: ID:winged twil roar
+  FNAM: Filename:Cr\wngtwl\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "winged twil scream" Flags:0x0000 ()
+  NAME: ID:winged twil scream
+  FNAM: Filename:Cr\wngtwl\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "gold saint moan" Flags:0x0000 ()
+  NAME: ID:gold saint moan
+  FNAM: Filename:Cr\gldsnt\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "gold saint roar" Flags:0x0000 ()
+  NAME: ID:gold saint roar
+  FNAM: Filename:Cr\gldsnt\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "gold saint scream" Flags:0x0000 ()
+  NAME: ID:gold saint scream
+  FNAM: Filename:Cr\gldsnt\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "item weapon bow up" Flags:0x0000 ()
+  NAME: ID:Item Weapon Bow Up
+  FNAM: Filename:Fx\item\bowOUT.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "item weapon bow down" Flags:0x0000 ()
+  NAME: ID:Item Weapon Bow Down
+  FNAM: Filename:Fx\item\bowAWAY.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "item weapon crossbow up" Flags:0x0000 ()
+  NAME: ID:Item Weapon Crossbow Up
+  FNAM: Filename:Fx\item\cbowOUT.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "item weapon crossbow down" Flags:0x0000 ()
+  NAME: ID:Item Weapon Crossbow Down
+  FNAM: Filename:Fx\item\cbowAWAY.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "item weapon longblade up" Flags:0x0000 ()
+  NAME: ID:Item Weapon Longblade Up
+  FNAM: Filename:Fx\item\longbladOUT.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "item weapon longblade down" Flags:0x0000 ()
+  NAME: ID:Item Weapon Longblade Down
+  FNAM: Filename:Fx\item\longbladAWAY.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "item weapon shortblade up" Flags:0x0000 ()
+  NAME: ID:Item Weapon Shortblade Up
+  FNAM: Filename:Fx\item\shrtbladOUT.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "item weapon shortblade down" Flags:0x0000 ()
+  NAME: ID:Item Weapon Shortblade Down
+  FNAM: Filename:Fx\item\shrtbladAWAY.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "item weapon spear up" Flags:0x0000 ()
+  NAME: ID:Item Weapon Spear Up
+  FNAM: Filename:Fx\item\spearOUT.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "item weapon spear down" Flags:0x0000 ()
+  NAME: ID:Item Weapon Spear Down
+  FNAM: Filename:Fx\item\spearAWAY.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "item weapon blunt up" Flags:0x0000 ()
+  NAME: ID:Item Weapon Blunt Up
+  FNAM: Filename:Fx\item\axeOUT.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "item weapon blunt down" Flags:0x0000 ()
+  NAME: ID:Item Weapon Blunt Down
+  FNAM: Filename:Fx\item\axeAWAY.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "crossbowshoot" Flags:0x0000 ()
+  NAME: ID:crossbowShoot
+  FNAM: Filename:Fx\item\cbowshoot.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "silt_1" Flags:0x0000 ()
+  NAME: ID:Silt_1
+  FNAM: Filename:Cr\silt\silt01.wav
+  DATA: Volume:1.00  Min_Range:20  Max_Range:100
+
+Record: SOUN "silt_2" Flags:0x0000 ()
+  NAME: ID:Silt_2
+  FNAM: Filename:Cr\silt\silt02.wav
+  DATA: Volume:1.00  Min_Range:20  Max_Range:100
+
+Record: SOUN "sixth_bell" Flags:0x0000 ()
+  NAME: ID:Sixth_Bell
+  FNAM: Filename:Fx\envrn\bell1.wav
+  DATA: Volume:1.00  Min_Range:10  Max_Range:50
+
+Record: SOUN "atroflame moan" Flags:0x0000 ()
+  NAME: ID:atroflame moan
+  FNAM: Filename:Cr\atrofl\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "atroflame roar" Flags:0x0000 ()
+  NAME: ID:atroflame roar
+  FNAM: Filename:Cr\atrofl\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "atroflame scream" Flags:0x0000 ()
+  NAME: ID:atroflame scream
+  FNAM: Filename:Cr\atrofl\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "atrofrost moan" Flags:0x0000 ()
+  NAME: ID:atrofrost moan
+  FNAM: Filename:Cr\atrofr\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "atrofrost roar" Flags:0x0000 ()
+  NAME: ID:atrofrost roar
+  FNAM: Filename:Cr\atrofr\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "atrofrost scream" Flags:0x0000 ()
+  NAME: ID:atrofrost scream
+  FNAM: Filename:Cr\atrofr\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "atrostorm moan" Flags:0x0000 ()
+  NAME: ID:atrostorm moan
+  FNAM: Filename:Cr\atrost\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "atrostorm roar" Flags:0x0000 ()
+  NAME: ID:atrostorm roar
+  FNAM: Filename:Cr\atrost\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "atrostorm scream" Flags:0x0000 ()
+  NAME: ID:atrostorm scream
+  FNAM: Filename:Cr\atrost\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "clannfear moan" Flags:0x0000 ()
+  NAME: ID:clannfear moan
+  FNAM: Filename:Cr\clannf\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "clannfear roar" Flags:0x0000 ()
+  NAME: ID:clannfear roar
+  FNAM: Filename:Cr\clannf\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "clannfear scream" Flags:0x0000 ()
+  NAME: ID:clannfear scream
+  FNAM: Filename:Cr\clannf\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "daedroth moan" Flags:0x0000 ()
+  NAME: ID:daedroth moan
+  FNAM: Filename:Cr\daed\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "daedroth roar" Flags:0x0000 ()
+  NAME: ID:daedroth roar
+  FNAM: Filename:Cr\daed\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "daedroth scream" Flags:0x0000 ()
+  NAME: ID:daedroth scream
+  FNAM: Filename:Cr\daed\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "guar moan" Flags:0x0000 ()
+  NAME: ID:guar moan
+  FNAM: Filename:Cr\guar\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "guar roar" Flags:0x0000 ()
+  NAME: ID:guar roar
+  FNAM: Filename:Cr\guar\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "guar scream" Flags:0x0000 ()
+  NAME: ID:guar scream
+  FNAM: Filename:Cr\guar\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "slaughterfish moan" Flags:0x0000 ()
+  NAME: ID:slaughterfish moan
+  FNAM: Filename:Cr\slfish\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "slaughterfish roar" Flags:0x0000 ()
+  NAME: ID:slaughterfish roar
+  FNAM: Filename:Cr\slfish\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "slaughterfish scream" Flags:0x0000 ()
+  NAME: ID:slaughterfish scream
+  FNAM: Filename:Cr\slfish\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "mudcrab moan" Flags:0x0000 ()
+  NAME: ID:mudcrab moan
+  FNAM: Filename:Cr\mdcrb\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "mudcrab roar" Flags:0x0000 ()
+  NAME: ID:mudcrab roar
+  FNAM: Filename:Cr\mdcrb\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "mudcrab scream" Flags:0x0000 ()
+  NAME: ID:mudcrab scream
+  FNAM: Filename:Cr\mdcrb\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "ogrim moan" Flags:0x0000 ()
+  NAME: ID:ogrim moan
+  FNAM: Filename:Cr\ogrim\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "ogrim roar" Flags:0x0000 ()
+  NAME: ID:ogrim roar
+  FNAM: Filename:Cr\ogrim\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "ogrim scream" Flags:0x0000 ()
+  NAME: ID:ogrim scream
+  FNAM: Filename:Cr\ogrim\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "shalk moan" Flags:0x0000 ()
+  NAME: ID:shalk moan
+  FNAM: Filename:Cr\shalk\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "shalk roar" Flags:0x0000 ()
+  NAME: ID:shalk roar
+  FNAM: Filename:Cr\shalk\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "shalk scream" Flags:0x0000 ()
+  NAME: ID:shalk scream
+  FNAM: Filename:Cr\shalk\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "dreugh moan" Flags:0x0000 ()
+  NAME: ID:dreugh moan
+  FNAM: Filename:Cr\druegh\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "dreugh roar" Flags:0x0000 ()
+  NAME: ID:dreugh roar
+  FNAM: Filename:Cr\druegh\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "dreugh scream" Flags:0x0000 ()
+  NAME: ID:dreugh scream
+  FNAM: Filename:Cr\druegh\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "bonelord moan" Flags:0x0000 ()
+  NAME: ID:bonelord moan
+  FNAM: Filename:Cr\bnlrd\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "bonelord roar" Flags:0x0000 ()
+  NAME: ID:bonelord roar
+  FNAM: Filename:Cr\bnlrd\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "bonelord scream" Flags:0x0000 ()
+  NAME: ID:bonelord scream
+  FNAM: Filename:Cr\bnlrd\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "skeleton moan" Flags:0x0000 ()
+  NAME: ID:skeleton moan
+  FNAM: Filename:Cr\skel\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "skeleton roar" Flags:0x0000 ()
+  NAME: ID:skeleton roar
+  FNAM: Filename:Cr\skel\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "skeleton scream" Flags:0x0000 ()
+  NAME: ID:skeleton scream
+  FNAM: Filename:Cr\skel\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "dremora moan" Flags:0x0000 ()
+  NAME: ID:dremora moan
+  FNAM: Filename:Cr\drem\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "dremora roar" Flags:0x0000 ()
+  NAME: ID:dremora roar
+  FNAM: Filename:Cr\drem\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "dremora scream" Flags:0x0000 ()
+  NAME: ID:dremora scream
+  FNAM: Filename:Cr\drem\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "ash vampire moan" Flags:0x0000 ()
+  NAME: ID:ash vampire moan
+  FNAM: Filename:Cr\ashvamp\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "ash vampire roar" Flags:0x0000 ()
+  NAME: ID:ash vampire roar
+  FNAM: Filename:Cr\ashvamp\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "ash vampire scream" Flags:0x0000 ()
+  NAME: ID:ash vampire scream
+  FNAM: Filename:Cr\ashvamp\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "ash ghoul moan" Flags:0x0000 ()
+  NAME: ID:ash ghoul moan
+  FNAM: Filename:Cr\ashgl\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "ash ghoul scream" Flags:0x0000 ()
+  NAME: ID:ash ghoul scream
+  FNAM: Filename:Cr\ashgl\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "ash zombie moan" Flags:0x0000 ()
+  NAME: ID:ash zombie moan
+  FNAM: Filename:Cr\ashzm\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "ash zombie roar" Flags:0x0000 ()
+  NAME: ID:ash zombie roar
+  FNAM: Filename:Cr\ashzm\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "ash zombie scream" Flags:0x0000 ()
+  NAME: ID:ash zombie scream
+  FNAM: Filename:Cr\ashzm\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "ash slave moan" Flags:0x0000 ()
+  NAME: ID:ash slave moan
+  FNAM: Filename:Cr\ashslv\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "ash slave roar" Flags:0x0000 ()
+  NAME: ID:ash slave roar
+  FNAM: Filename:Cr\ashslv\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "ash slave scream" Flags:0x0000 ()
+  NAME: ID:ash slave scream
+  FNAM: Filename:Cr\ashslv\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "ancestor ghost moan" Flags:0x0000 ()
+  NAME: ID:ancestor ghost moan
+  FNAM: Filename:Cr\ancghst\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "ancestor ghost roar" Flags:0x0000 ()
+  NAME: ID:ancestor ghost roar
+  FNAM: Filename:Cr\ancghst\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "ancestor ghost scream" Flags:0x0000 ()
+  NAME: ID:ancestor ghost scream
+  FNAM: Filename:Cr\ancghst\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "ash ghoul roar" Flags:0x0000 ()
+  NAME: ID:ash ghoul roar
+  FNAM: Filename:Cr\ashgl\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "bonewalkerwar moan" Flags:0x0000 ()
+  NAME: ID:bonewalkerWAR moan
+  FNAM: Filename:Cr\bnwlkw\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "bonewalkerwar roar" Flags:0x0000 ()
+  NAME: ID:bonewalkerWAR roar
+  FNAM: Filename:Cr\bnwlkw\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "bonewalkerwar scream" Flags:0x0000 ()
+  NAME: ID:bonewalkerWAR scream
+  FNAM: Filename:Cr\bnwlkw\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "kwamf moan" Flags:0x0000 ()
+  NAME: ID:kwamF moan
+  FNAM: Filename:Cr\kwamf\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "kwamf roar" Flags:0x0000 ()
+  NAME: ID:kwamF roar
+  FNAM: Filename:Cr\kwamf\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "kwamf scream" Flags:0x0000 ()
+  NAME: ID:kwamF scream
+  FNAM: Filename:Cr\kwamf\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "kwamwk moan" Flags:0x0000 ()
+  NAME: ID:kwamWK moan
+  FNAM: Filename:Cr\kwamwk\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "kwamwk roar" Flags:0x0000 ()
+  NAME: ID:kwamWK roar
+  FNAM: Filename:Cr\kwamwk\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "kwamwk scream" Flags:0x0000 ()
+  NAME: ID:kwamWK scream
+  FNAM: Filename:Cr\kwamwk\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "kwamwr moan" Flags:0x0000 ()
+  NAME: ID:kwamWR moan
+  FNAM: Filename:Cr\kwamwr\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "kwamwr roar" Flags:0x0000 ()
+  NAME: ID:kwamWR roar
+  FNAM: Filename:Cr\kwamwr\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "kwamwr scream" Flags:0x0000 ()
+  NAME: ID:kwamWR scream
+  FNAM: Filename:Cr\kwamwr\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "kwamq moan" Flags:0x0000 ()
+  NAME: ID:kwamQ moan
+  FNAM: Filename:Cr\kwanq\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "kwamq roar" Flags:0x0000 ()
+  NAME: ID:kwamQ roar
+  FNAM: Filename:Cr\kwanq\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "kwamq scream" Flags:0x0000 ()
+  NAME: ID:kwamQ scream
+  FNAM: Filename:Cr\kwanq\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "rat moan" Flags:0x0000 ()
+  NAME: ID:rat moan
+  FNAM: Filename:Cr\rat\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "rat roar" Flags:0x0000 ()
+  NAME: ID:rat roar
+  FNAM: Filename:Cr\rat\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "rat scream" Flags:0x0000 ()
+  NAME: ID:rat scream
+  FNAM: Filename:Cr\rat\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "netchbul moan" Flags:0x0000 ()
+  NAME: ID:netchBUL moan
+  FNAM: Filename:Cr\ntchbl\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "netchbul roar" Flags:0x0000 ()
+  NAME: ID:netchBUL roar
+  FNAM: Filename:Cr\ntchbl\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "netchbul scream" Flags:0x0000 ()
+  NAME: ID:netchBUL scream
+  FNAM: Filename:Cr\ntchbl\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "netchbet moan" Flags:0x0000 ()
+  NAME: ID:netchBET moan
+  FNAM: Filename:Cr\ntchbt\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "netchbet roar" Flags:0x0000 ()
+  NAME: ID:netchBET roar
+  FNAM: Filename:Cr\ntchbt\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "netchbet scream" Flags:0x0000 ()
+  NAME: ID:netchBET scream
+  FNAM: Filename:Cr\ntchbt\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "scrib moan" Flags:0x0000 ()
+  NAME: ID:scrib moan
+  FNAM: Filename:Cr\scrib\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "scrib roar" Flags:0x0000 ()
+  NAME: ID:scrib roar
+  FNAM: Filename:Cr\scrib\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "scrib scream" Flags:0x0000 ()
+  NAME: ID:scrib scream
+  FNAM: Filename:Cr\scrib\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "book open" Flags:0x0000 ()
+  NAME: ID:book open
+  FNAM: Filename:Fx\item\bookopen.wav
+  DATA: Volume:0.80  Min_Range:0  Max_Range:0
+
+Record: SOUN "book close" Flags:0x0000 ()
+  NAME: ID:book close
+  FNAM: Filename:Fx\item\bookclose.wav
+  DATA: Volume:0.80  Min_Range:0  Max_Range:0
+
+Record: SOUN "book page" Flags:0x0000 ()
+  NAME: ID:book page
+  FNAM: Filename:Fx\item\bookpag1.wav
+  DATA: Volume:0.70  Min_Range:0  Max_Range:0
+
+Record: SOUN "book page2" Flags:0x0000 ()
+  NAME: ID:book page2
+  FNAM: Filename:Fx\item\bookpag2.wav
+  DATA: Volume:0.70  Min_Range:0  Max_Range:0
+
+Record: SOUN "bell1" Flags:0x0000 ()
+  NAME: ID:bell1
+  FNAM: Filename:Fx\envrn\bell1.wav
+  DATA: Volume:1.00  Min_Range:10  Max_Range:50
+
+Record: SOUN "bell2" Flags:0x0000 ()
+  NAME: ID:bell2
+  FNAM: Filename:Fx\envrn\bell2.wav
+  DATA: Volume:1.00  Min_Range:10  Max_Range:50
+
+Record: SOUN "bell3" Flags:0x0000 ()
+  NAME: ID:bell3
+  FNAM: Filename:Fx\envrn\bell3.wav
+  DATA: Volume:1.00  Min_Range:10  Max_Range:50
+
+Record: SOUN "bell4" Flags:0x0000 ()
+  NAME: ID:bell4
+  FNAM: Filename:Fx\envrn\bell4.wav
+  DATA: Volume:1.00  Min_Range:10  Max_Range:50
+
+Record: SOUN "bell5" Flags:0x0000 ()
+  NAME: ID:bell5
+  FNAM: Filename:Fx\envrn\bell5.wav
+  DATA: Volume:1.00  Min_Range:10  Max_Range:50
+
+Record: SOUN "bell6" Flags:0x0000 ()
+  NAME: ID:bell6
+  FNAM: Filename:Fx\envrn\bell6.wav
+  DATA: Volume:1.00  Min_Range:10  Max_Range:50
+
+Record: SOUN "mud bubbles" Flags:0x0000 ()
+  NAME: ID:mud bubbles
+  FNAM: Filename:Fx\envrn\mudbubbles.wav
+  DATA: Volume:1.00  Min_Range:10  Max_Range:50
+
+Record: SOUN "forcefield" Flags:0x0000 ()
+  NAME: ID:forcefield
+  FNAM: Filename:Fx\envrn\forcefield.wav
+  DATA: Volume:1.00  Min_Range:60  Max_Range:240
+
+Record: SOUN "chimes wood" Flags:0x0000 ()
+  NAME: ID:chimes wood
+  FNAM: Filename:Fx\envrn\woodchimes.wav
+  DATA: Volume:1.00  Min_Range:10  Max_Range:60
+
+Record: SOUN "waterfall small" Flags:0x0000 ()
+  NAME: ID:waterfall small
+  FNAM: Filename:Fx\envrn\watrfallSML.wav
+  DATA: Volume:0.60  Min_Range:5  Max_Range:30
+
+Record: SOUN "lefts" Flags:0x0000 ()
+  NAME: ID:LeftS
+  FNAM: Filename:Fx\FOOT\walkl_br.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "leftm" Flags:0x0000 ()
+  NAME: ID:LeftM
+  FNAM: Filename:Fx\FOOT\walkl_md.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "hand to hand hit 2" Flags:0x0000 ()
+  NAME: ID:Hand to Hand Hit 2
+  FNAM: Filename:Fx\punch 2.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "frost area" Flags:0x0000 ()
+  NAME: ID:frost area
+  FNAM: Filename:Fx\magic\frstA.wav
+  DATA: Volume:1.00  Min_Range:30  Max_Range:90
+
+Record: SOUN "ghostgate sound" Flags:0x0000 ()
+  NAME: ID:ghostgate sound
+  FNAM: Filename:Fx\envrn\forcefield.wav
+  DATA: Volume:1.00  Min_Range:60  Max_Range:240
+
+Record: SOUN "cave_waterfall" Flags:0x0000 ()
+  NAME: ID:Cave_Waterfall
+  FNAM: Filename:Fx\envrn\watrfallSML.wav
+  DATA: Volume:0.60  Min_Range:5  Max_Range:30
+
+Record: SOUN "corpdrag" Flags:0x0000 ()
+  NAME: ID:corpDRAG
+  FNAM: Filename:Cr\corp\corpDRAG.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "steamleft" Flags:0x0000 ()
+  NAME: ID:steamLEFT
+  FNAM: Filename:Cr\centstm\steamLEFT.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "steamright" Flags:0x0000 ()
+  NAME: ID:steamRIGHT
+  FNAM: Filename:Cr\centstm\steamRIGHT.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "spiderattack1" Flags:0x0000 ()
+  NAME: ID:spiderATTACK1
+  FNAM: Filename:Cr\centspd\spidATTACK1.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "spiderattack2" Flags:0x0000 ()
+  NAME: ID:spiderATTACK2
+  FNAM: Filename:Cr\centspd\spidATTACK2.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "steamattack1" Flags:0x0000 ()
+  NAME: ID:steamATTACK1
+  FNAM: Filename:Cr\centstm\steamATTACK.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "steamattack2" Flags:0x0000 ()
+  NAME: ID:steamATTACK2
+  FNAM: Filename:Cr\centstm\steamATTACK2.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "animallargeleft" Flags:0x0000 ()
+  NAME: ID:animalLARGEleft
+  FNAM: Filename:Fx\FOOT\anmlLRGleft.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "animallargeright" Flags:0x0000 ()
+  NAME: ID:animalLARGEright
+  FNAM: Filename:Fx\FOOT\anmlLRGright.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "animalsmallleft" Flags:0x0000 ()
+  NAME: ID:animalSMALLleft
+  FNAM: Filename:Fx\FOOT\anmlSMLleft.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "animalsmallright" Flags:0x0000 ()
+  NAME: ID:animalSMALLright
+  FNAM: Filename:Fx\FOOT\anmlSMLright.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "scribright" Flags:0x0000 ()
+  NAME: ID:scribRIGHT
+  FNAM: Filename:Cr\scrib\scribRIGHT.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "scribleft" Flags:0x0000 ()
+  NAME: ID:scribLEFT
+  FNAM: Filename:Cr\scrib\scribLEFT.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "steamroll" Flags:0x0000 ()
+  NAME: ID:steamROLL
+  FNAM: Filename:Cr\centsphr\steamROLL.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "spiderleft" Flags:0x0000 ()
+  NAME: ID:spiderLEFT
+  FNAM: Filename:Cr\centspd\spidLEFT.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "spiderright" Flags:0x0000 ()
+  NAME: ID:spiderRIGHT
+  FNAM: Filename:Cr\centspd\spidRIGHT.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "miss" Flags:0x0000 ()
+  NAME: ID:miss
+  FNAM: Filename:Fx\miss.wav
+  DATA: Volume:0.80  Min_Range:0  Max_Range:0
+
+Record: SOUN "critical damage" Flags:0x0000 ()
+  NAME: ID:critical damage
+  FNAM: Filename:Fx\criticalDMG.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "drown" Flags:0x0000 ()
+  NAME: ID:drown
+  FNAM: Filename:Fx\drown.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "endboom1" Flags:0x0000 ()
+  NAME: ID:endboom1
+  FNAM: Filename:Fx\boom1.wav
+  DATA: Volume:1.00  Min_Range:255  Max_Range:255
+
+Record: SOUN "endboom2" Flags:0x0000 ()
+  NAME: ID:endboom2
+  FNAM: Filename:Fx\boom3.wav
+  DATA: Volume:1.00  Min_Range:255  Max_Range:255
+
+Record: SOUN "endboom3" Flags:0x0000 ()
+  NAME: ID:endboom3
+  FNAM: Filename:Fx\boom2.wav
+  DATA: Volume:1.00  Min_Range:255  Max_Range:255
+
+Record: SOUN "endboom4" Flags:0x0000 ()
+  NAME: ID:endboom4
+  FNAM: Filename:Fx\boom4.wav
+  DATA: Volume:1.00  Min_Range:255  Max_Range:255
+
+Record: SOUN "weapon swish" Flags:0x0000 ()
+  NAME: ID:Weapon Swish
+  FNAM: Filename:Fx\swoosh 1.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "water layer" Flags:0x0000 ()
+  NAME: ID:Water Layer
+  FNAM: Filename:Fx\envrn\watr_wave.wav
+  DATA: Volume:0.40  Min_Range:1  Max_Range:15
+
+Record: SOUN "drowning damage" Flags:0x0000 ()
+  NAME: ID:drowning damage
+  FNAM: Filename:Fx\drown_DMG.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "chest open" Flags:0x0000 ()
+  NAME: ID:chest open
+  FNAM: Filename:Fx\chest_opn.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "chest close" Flags:0x0000 ()
+  NAME: ID:chest close
+  FNAM: Filename:Fx\chest_cls.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "scroll" Flags:0x0000 ()
+  NAME: ID:scroll
+  FNAM: Filename:Fx\item\bookpag2.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "kwama forager slither" Flags:0x0000 ()
+  NAME: ID:kwama forager slither
+  FNAM: Filename:Cr\kwamf\slither.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "rain heavy" Flags:0x0000 ()
+  NAME: ID:rain heavy
+  FNAM: Filename:Fx\envrn\rainHVY.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "swishs" Flags:0x0000 ()
+  NAME: ID:SwishS
+  FNAM: Filename:Fx\swoosh 2.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "swishm" Flags:0x0000 ()
+  NAME: ID:SwishM
+  FNAM: Filename:Fx\swoosh 1.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "swishl" Flags:0x0000 ()
+  NAME: ID:SwishL
+  FNAM: Filename:Fx\swoosh 3.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "lava layer" Flags:0x0000 ()
+  NAME: ID:Lava Layer
+  FNAM: Filename:Fx\envrn\lava_flow.wav
+  DATA: Volume:1.00  Min_Range:20  Max_Range:100
+
+Record: SOUN "item armor heavy up" Flags:0x0000 ()
+  NAME: ID:Item Armor Heavy Up
+  FNAM: Filename:Fx\item\armrHVY.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "item armor heavy down" Flags:0x0000 ()
+  NAME: ID:Item Armor Heavy Down
+  FNAM: Filename:Fx\item\armrHVY.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "potion success" Flags:0x0000 ()
+  NAME: ID:potion success
+  FNAM: Filename:Fx\item\potion.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "potion fail" Flags:0x0000 ()
+  NAME: ID:potion fail
+  FNAM: Filename:Fx\item\potionFAIL.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "enchant success" Flags:0x0000 ()
+  NAME: ID:enchant success
+  FNAM: Filename:Fx\magic\enchant.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "enchant fail" Flags:0x0000 ()
+  NAME: ID:enchant fail
+  FNAM: Filename:Fx\magic\enchantFAIL.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "spellmake success" Flags:0x0000 ()
+  NAME: ID:spellmake success
+  FNAM: Filename:Fx\magic\mystH.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "spellmake fail" Flags:0x0000 ()
+  NAME: ID:spellmake fail
+  FNAM: Filename:Fx\magic\mystFAIL.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "dwarven ghost moan" Flags:0x0000 ()
+  NAME: ID:dwarven ghost moan
+  FNAM: Filename:Cr\dwrvg\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "dwarven ghost roar" Flags:0x0000 ()
+  NAME: ID:dwarven ghost roar
+  FNAM: Filename:Cr\dwrvg\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "dwarven ghost scream" Flags:0x0000 ()
+  NAME: ID:dwarven ghost scream
+  FNAM: Filename:Cr\dwrvg\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "howl1" Flags:0x0000 ()
+  NAME: ID:howl1
+  FNAM: Filename:Fx\REGN\howl.wav
+  DATA: Volume:0.70  Min_Range:0  Max_Range:0
+
+Record: SOUN "howl2" Flags:0x0000 ()
+  NAME: ID:howl2
+  FNAM: Filename:Fx\REGN\howl2.wav
+  DATA: Volume:0.70  Min_Range:0  Max_Range:0
+
+Record: SOUN "howl3" Flags:0x0000 ()
+  NAME: ID:howl3
+  FNAM: Filename:Fx\REGN\howl3.wav
+  DATA: Volume:0.70  Min_Range:0  Max_Range:0
+
+Record: SOUN "howl4" Flags:0x0000 ()
+  NAME: ID:howl4
+  FNAM: Filename:Fx\REGN\howl4.wav
+  DATA: Volume:0.40  Min_Range:0  Max_Range:0
+
+Record: SOUN "howl5" Flags:0x0000 ()
+  NAME: ID:howl5
+  FNAM: Filename:Fx\REGN\howl5.wav
+  DATA: Volume:0.70  Min_Range:0  Max_Range:0
+
+Record: SOUN "howl6" Flags:0x0000 ()
+  NAME: ID:howl6
+  FNAM: Filename:Fx\REGN\howl6.wav
+  DATA: Volume:0.70  Min_Range:0  Max_Range:0
+
+Record: SOUN "howl7" Flags:0x0000 ()
+  NAME: ID:howl7
+  FNAM: Filename:Fx\REGN\howl7.wav
+  DATA: Volume:0.25  Min_Range:0  Max_Range:0
+
+Record: SOUN "howl8" Flags:0x0000 ()
+  NAME: ID:howl8
+  FNAM: Filename:Fx\REGN\howl8.wav
+  DATA: Volume:0.70  Min_Range:0  Max_Range:0
+
+Record: SOUN "rocks1" Flags:0x0000 ()
+  NAME: ID:rocks1
+  FNAM: Filename:Fx\REGN\rocks1.wav
+  DATA: Volume:0.60  Min_Range:0  Max_Range:0
+
+Record: SOUN "rocks2" Flags:0x0000 ()
+  NAME: ID:rocks2
+  FNAM: Filename:Fx\REGN\rocks2.wav
+  DATA: Volume:0.60  Min_Range:0  Max_Range:0
+
+Record: SOUN "rocks3" Flags:0x0000 ()
+  NAME: ID:rocks3
+  FNAM: Filename:Fx\REGN\rocks3.wav
+  DATA: Volume:0.60  Min_Range:0  Max_Range:0
+
+Record: SOUN "rocks4" Flags:0x0000 ()
+  NAME: ID:rocks4
+  FNAM: Filename:Fx\REGN\rocks4.wav
+  DATA: Volume:0.60  Min_Range:0  Max_Range:0
+
+Record: SOUN "rocks5" Flags:0x0000 ()
+  NAME: ID:rocks5
+  FNAM: Filename:Fx\REGN\rocks5.wav
+  DATA: Volume:0.60  Min_Range:0  Max_Range:0
+
+Record: SOUN "rocks6" Flags:0x0000 ()
+  NAME: ID:rocks6
+  FNAM: Filename:Fx\REGN\rocks6.wav
+  DATA: Volume:0.60  Min_Range:0  Max_Range:0
+
+Record: SOUN "rocks7" Flags:0x0000 ()
+  NAME: ID:rocks7
+  FNAM: Filename:Fx\REGN\rocks7.wav
+  DATA: Volume:0.60  Min_Range:0  Max_Range:0
+
+Record: SOUN "rocks8" Flags:0x0000 ()
+  NAME: ID:rocks8
+  FNAM: Filename:Fx\REGN\rocks8.wav
+  DATA: Volume:0.60  Min_Range:0  Max_Range:0
+
+Record: SOUN "rumble1" Flags:0x0000 ()
+  NAME: ID:rumble1
+  FNAM: Filename:Fx\REGN\rumble.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "rumble2" Flags:0x0000 ()
+  NAME: ID:rumble2
+  FNAM: Filename:Fx\REGN\rumble2.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "rumble3" Flags:0x0000 ()
+  NAME: ID:rumble3
+  FNAM: Filename:Fx\REGN\rumble3.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "rumble4" Flags:0x0000 ()
+  NAME: ID:rumble4
+  FNAM: Filename:Fx\REGN\rumble4.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "wind calm1" Flags:0x0000 ()
+  NAME: ID:wind calm1
+  FNAM: Filename:Fx\REGN\wndCALM.wav
+  DATA: Volume:0.50  Min_Range:0  Max_Range:0
+
+Record: SOUN "wind calm2" Flags:0x0000 ()
+  NAME: ID:wind calm2
+  FNAM: Filename:Fx\REGN\wndCALM2.wav
+  DATA: Volume:0.50  Min_Range:0  Max_Range:0
+
+Record: SOUN "wind calm3" Flags:0x0000 ()
+  NAME: ID:wind calm3
+  FNAM: Filename:Fx\REGN\wndCALM3.wav
+  DATA: Volume:0.50  Min_Range:0  Max_Range:0
+
+Record: SOUN "wind calm4" Flags:0x0000 ()
+  NAME: ID:wind calm4
+  FNAM: Filename:Fx\REGN\wndCALM4.wav
+  DATA: Volume:0.50  Min_Range:0  Max_Range:0
+
+Record: SOUN "wind calm5" Flags:0x0000 ()
+  NAME: ID:wind calm5
+  FNAM: Filename:Fx\REGN\wndCALM5.wav
+  DATA: Volume:0.50  Min_Range:0  Max_Range:0
+
+Record: SOUN "wind des1" Flags:0x0000 ()
+  NAME: ID:wind des1
+  FNAM: Filename:Fx\REGN\wndDES.wav
+  DATA: Volume:0.50  Min_Range:0  Max_Range:0
+
+Record: SOUN "wind des2" Flags:0x0000 ()
+  NAME: ID:wind des2
+  FNAM: Filename:Fx\REGN\wndDES2.wav
+  DATA: Volume:0.50  Min_Range:0  Max_Range:0
+
+Record: SOUN "wind des3" Flags:0x0000 ()
+  NAME: ID:wind des3
+  FNAM: Filename:Fx\REGN\wndDES3.wav
+  DATA: Volume:0.50  Min_Range:0  Max_Range:0
+
+Record: SOUN "wind des4" Flags:0x0000 ()
+  NAME: ID:wind des4
+  FNAM: Filename:Fx\REGN\wndDES4.wav
+  DATA: Volume:0.50  Min_Range:0  Max_Range:0
+
+Record: SOUN "wind low1" Flags:0x0000 ()
+  NAME: ID:wind low1
+  FNAM: Filename:Fx\REGN\wndLOW.wav
+  DATA: Volume:0.50  Min_Range:0  Max_Range:0
+
+Record: SOUN "wind low2" Flags:0x0000 ()
+  NAME: ID:wind low2
+  FNAM: Filename:Fx\REGN\wndLOW2.wav
+  DATA: Volume:0.50  Min_Range:0  Max_Range:0
+
+Record: SOUN "wind low3" Flags:0x0000 ()
+  NAME: ID:wind low3
+  FNAM: Filename:Fx\REGN\wndLOW3.wav
+  DATA: Volume:0.50  Min_Range:0  Max_Range:0
+
+Record: SOUN "wind trees1" Flags:0x0000 ()
+  NAME: ID:wind trees1
+  FNAM: Filename:Fx\REGN\wndTREE.wav
+  DATA: Volume:0.50  Min_Range:0  Max_Range:0
+
+Record: SOUN "wind trees2" Flags:0x0000 ()
+  NAME: ID:wind trees2
+  FNAM: Filename:Fx\REGN\wndTREE2.wav
+  DATA: Volume:0.50  Min_Range:0  Max_Range:0
+
+Record: SOUN "wind trees3" Flags:0x0000 ()
+  NAME: ID:wind trees3
+  FNAM: Filename:Fx\REGN\wndTREE3.wav
+  DATA: Volume:0.50  Min_Range:0  Max_Range:0
+
+Record: SOUN "wind trees4" Flags:0x0000 ()
+  NAME: ID:wind trees4
+  FNAM: Filename:Fx\REGN\wndTREE4.wav
+  DATA: Volume:0.50  Min_Range:0  Max_Range:0
+
+Record: SOUN "wind trees5" Flags:0x0000 ()
+  NAME: ID:wind trees5
+  FNAM: Filename:Fx\REGN\wndTREE5.wav
+  DATA: Volume:0.50  Min_Range:0  Max_Range:0
+
+Record: SOUN "wind trees6" Flags:0x0000 ()
+  NAME: ID:wind trees6
+  FNAM: Filename:Fx\REGN\wndTREE6.wav
+  DATA: Volume:0.50  Min_Range:0  Max_Range:0
+
+Record: SOUN "wind trees7" Flags:0x0000 ()
+  NAME: ID:wind trees7
+  FNAM: Filename:Fx\REGN\wndTREES7.wav
+  DATA: Volume:0.50  Min_Range:0  Max_Range:0
+
+Record: SOUN "repair fail" Flags:0x0000 ()
+  NAME: ID:repair fail
+  FNAM: Filename:Fx\item\repairFAIL.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "dagoth ur moan" Flags:0x0000 ()
+  NAME: ID:Dagoth Ur Moan
+  FNAM: Filename:Cr\dagoth\Hit_DU016.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "dagoth ur scream" Flags:0x0000 ()
+  NAME: ID:Dagoth Ur Scream
+  FNAM: Filename:Cr\dagoth\Hit_DU017.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "heartsunder" Flags:0x0000 ()
+  NAME: ID:heartsunder
+  FNAM: Filename:Fx\heart2.wav
+  DATA: Volume:1.00  Min_Range:150  Max_Range:255
+
+Record: SOUN "hearthit1" Flags:0x0000 ()
+  NAME: ID:hearthit1
+  FNAM: Filename:Fx\hearthit1.wav
+  DATA: Volume:1.00  Min_Range:20  Max_Range:255
+
+Record: SOUN "hearthit2" Flags:0x0000 ()
+  NAME: ID:hearthit2
+  FNAM: Filename:Fx\hearthit2.wav
+  DATA: Volume:1.00  Min_Range:20  Max_Range:255
+
+Record: SOUN "hearthit3" Flags:0x0000 ()
+  NAME: ID:hearthit3
+  FNAM: Filename:Fx\hearthit3.wav
+  DATA: Volume:1.00  Min_Range:20  Max_Range:255
+
+Record: SOUN "hearthit4" Flags:0x0000 ()
+  NAME: ID:hearthit4
+  FNAM: Filename:Fx\hearthit4.wav
+  DATA: Volume:1.00  Min_Range:20  Max_Range:255
+
+Record: SOUN "heartdead" Flags:0x0000 ()
+  NAME: ID:heartdead
+  FNAM: Filename:Fx\heartdead.wav
+  DATA: Volume:1.00  Min_Range:255  Max_Range:255
+
+Record: SOUN "fire 40" Flags:0x0000 ()
+  NAME: ID:Fire 40
+  FNAM: Filename:Fx\envrn\fire.wav
+  DATA: Volume:0.40  Min_Range:2  Max_Range:15
+
+Record: SOUN "fire 50" Flags:0x0000 ()
+  NAME: ID:Fire 50
+  FNAM: Filename:Fx\envrn\fire.wav
+  DATA: Volume:0.50  Min_Range:2  Max_Range:15
+
+Record: SOUN "power light 50" Flags:0x0000 ()
+  NAME: ID:Power light 50
+  FNAM: Filename:Fx\envrn\power_light.wav
+  DATA: Volume:0.50  Min_Range:5  Max_Range:30
+
+Record: SOUN "kwamaf left" Flags:0x0000 ()
+  NAME: ID:kwamaF left
+  FNAM: Filename:Cr\kwamf\slither.wav
+  DATA: Volume:0.80  Min_Range:0  Max_Range:0
+
+Record: SOUN "kwamaf right" Flags:0x0000 ()
+  NAME: ID:kwamaF right
+  FNAM: Filename:Cr\kwamf\slither.wav
+  DATA: Volume:0.20  Min_Range:0  Max_Range:0
+
+Record: SOUN "item ring up" Flags:0x0000 ()
+  NAME: ID:Item Ring Up
+  FNAM: Filename:Fx\item\ring.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "item ring down" Flags:0x0000 ()
+  NAME: ID:Item Ring Down
+  FNAM: Filename:Fx\item\ring.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "frost_cast" Flags:0x0000 ()
+  NAME: ID:frost_cast
+  FNAM: Filename:Fx\magic\frstC.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "frost_bolt" Flags:0x0000 ()
+  NAME: ID:frost_bolt
+  FNAM: Filename:Fx\magic\frstT.wav
+  DATA: Volume:1.00  Min_Range:30  Max_Range:100
+
+Record: SOUN "frost_hit" Flags:0x0000 ()
+  NAME: ID:frost_hit
+  FNAM: Filename:Fx\magic\frstH.wav
+  DATA: Volume:1.00  Min_Range:30  Max_Range:100
+
+Record: SOUN "shock area" Flags:0x0000 ()
+  NAME: ID:shock area
+  FNAM: Filename:Fx\magic\shokA.wav
+  DATA: Volume:1.00  Min_Range:30  Max_Range:90
+
+Record: SOUN "shock bolt" Flags:0x0000 ()
+  NAME: ID:shock bolt
+  FNAM: Filename:Fx\magic\shokT.wav
+  DATA: Volume:1.00  Min_Range:30  Max_Range:100
+
+Record: SOUN "shock cast" Flags:0x0000 ()
+  NAME: ID:shock cast
+  FNAM: Filename:Fx\magic\shokC.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "shock hit" Flags:0x0000 ()
+  NAME: ID:shock hit
+  FNAM: Filename:Fx\magic\shokH.wav
+  DATA: Volume:1.00  Min_Range:30  Max_Range:100
+
+Record: SOUN "item potion up" Flags:0x0000 ()
+  NAME: ID:Item Potion Up
+  FNAM: Filename:Fx\item\potion.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "item potion down" Flags:0x0000 ()
+  NAME: ID:Item Potion Down
+  FNAM: Filename:Fx\item\potion.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "volcano rumble" Flags:0x0000 ()
+  NAME: ID:volcano rumble
+  FNAM: Filename:Fx\envrn\volcano.wav
+  DATA: Volume:1.00  Min_Range:30  Max_Range:150
+
+Record: SOUN "swamp 1" Flags:0x0000 ()
+  NAME: ID:swamp 1
+  FNAM: Filename:Fx\envrn\swamp01.wav
+  DATA: Volume:0.45  Min_Range:0  Max_Range:2
+
+Record: SOUN "swamp 2" Flags:0x0000 ()
+  NAME: ID:swamp 2
+  FNAM: Filename:Fx\envrn\swamp02.wav
+  DATA: Volume:0.45  Min_Range:1  Max_Range:2
+
+Record: SOUN "swamp 3" Flags:0x0000 ()
+  NAME: ID:swamp 3
+  FNAM: Filename:Fx\envrn\swamp03.wav
+  DATA: Volume:0.45  Min_Range:1  Max_Range:2
+
+Record: SOUN "defaultland" Flags:0x0000 ()
+  NAME: ID:DefaultLand
+  FNAM: Filename:Fx\bodyfallMED.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "defaultlandwater" Flags:0x0000 ()
+  NAME: ID:DefaultLandWater
+  FNAM: Filename:Fx\FOOT\splsh.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "ropebridge" Flags:0x0000 ()
+  NAME: ID:ropebridge
+  FNAM: Filename:Fx\envrn\bridgebreak.wav
+  DATA: Volume:1.00  Min_Range:255  Max_Range:255
+
+Record: SOUN "endrumble" Flags:0x0000 ()
+  NAME: ID:endrumble
+  FNAM: Filename:Fx\envrn\endrumble.wav
+  DATA: Volume:1.00  Min_Range:255  Max_Range:255
+
+Record: SOUN "magic sound" Flags:0x0000 ()
+  NAME: ID:magic sound
+  FNAM: Filename:Fx\magic\sound.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "cent steam fall" Flags:0x0000 ()
+  NAME: ID:cent steam fall
+  FNAM: Filename:Cr\centstm\steamfall.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Plugin: Tribunal.esm
+
+Record: SOUN "cave wind" Flags:0x0000 ()
+  NAME: ID:Cave Wind
+  FNAM: Filename:Fx\envrn\cave_wind.wav
+  DATA: Volume:0.80  Min_Range:5  Max_Range:50
+
+Record: SOUN "cave drip" Flags:0x0000 ()
+  NAME: ID:Cave Drip
+  FNAM: Filename:Fx\envrn\cave_drip.wav
+  DATA: Volume:0.80  Min_Range:5  Max_Range:100
+
+Record: SOUN "bubbles" Flags:0x0000 ()
+  NAME: ID:Bubbles
+  FNAM: Filename:Fx\envrn\lava_flow2.wav
+  DATA: Volume:1.00  Min_Range:10  Max_Range:100
+
+Record: SOUN "machinery" Flags:0x0000 ()
+  NAME: ID:Machinery
+  FNAM: Filename:Fx\envrn\factory.wav
+  DATA: Volume:1.00  Min_Range:5  Max_Range:60
+
+Record: SOUN "ambient factory ruins" Flags:0x0000 ()
+  NAME: ID:Ambient Factory Ruins
+  FNAM: Filename:Fx\envrn\factCREAK.wav
+  DATA: Volume:1.00  Min_Range:5  Max_Range:150
+
+Record: SOUN "crowd booing" Flags:0x0000 ()
+  NAME: ID:crowd booing
+  FNAM: Filename:Fx\boo.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "goblin moan" Flags:0x0000 ()
+  NAME: ID:goblin moan
+  FNAM: Filename:Cr\gbln\gblnM.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "goblin roar" Flags:0x0000 ()
+  NAME: ID:goblin roar
+  FNAM: Filename:Cr\gbln\gblnR.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "goblin scream" Flags:0x0000 ()
+  NAME: ID:goblin scream
+  FNAM: Filename:Cr\gbln\gblnS.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "goblin large moan" Flags:0x0000 ()
+  NAME: ID:goblin large moan
+  FNAM: Filename:Cr\gblnLRG\gblnLM.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "goblin large roar" Flags:0x0000 ()
+  NAME: ID:goblin large roar
+  FNAM: Filename:Cr\gblnLRG\gblnLR.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "goblin large scream" Flags:0x0000 ()
+  NAME: ID:goblin large scream
+  FNAM: Filename:Cr\gblnLRG\gblnLS.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "lich lord moan" Flags:0x0000 ()
+  NAME: ID:lich lord moan
+  FNAM: Filename:Cr\lchlrd\lchlrdM.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "lich lord roar" Flags:0x0000 ()
+  NAME: ID:lich lord roar
+  FNAM: Filename:Cr\lchlrd\lchlrdR.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "lich lord scream" Flags:0x0000 ()
+  NAME: ID:lich lord scream
+  FNAM: Filename:Cr\lchlrd\lchlrdS.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "cent proj moan" Flags:0x0000 ()
+  NAME: ID:cent proj moan
+  FNAM: Filename:Cr\centsphr\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "cent proj roar" Flags:0x0000 ()
+  NAME: ID:cent proj roar
+  FNAM: Filename:Cr\centsphr\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "cent proj scream" Flags:0x0000 ()
+  NAME: ID:cent proj scream
+  FNAM: Filename:Cr\centsphr\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "cent proj shoot" Flags:0x0000 ()
+  NAME: ID:cent proj shoot
+  FNAM: Filename:Cr\centPROJ\centPROJshoot.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "sludgeworm moan" Flags:0x0000 ()
+  NAME: ID:sludgeworm moan
+  FNAM: Filename:Cr\sludge\slydgeM.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "sludgeworm roar" Flags:0x0000 ()
+  NAME: ID:sludgeworm roar
+  FNAM: Filename:Cr\sludge\sludgeR.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "sludgeworm scream" Flags:0x0000 ()
+  NAME: ID:sludgeworm scream
+  FNAM: Filename:Cr\sludge\sludgeS.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "sludgeworm left" Flags:0x0000 ()
+  NAME: ID:sludgeworm left
+  FNAM: Filename:Cr\sludge\sludgeLEFT.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "sludgeworm right" Flags:0x0000 ()
+  NAME: ID:sludgeworm right
+  FNAM: Filename:Cr\sludge\sludgeRIGHT.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "sludgeworm fall" Flags:0x0000 ()
+  NAME: ID:sludgeworm fall
+  FNAM: Filename:Cr\sludge\sludgeFALL.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "sothadooropen" Flags:0x0000 ()
+  NAME: ID:SothaDoorOpen
+  FNAM: Filename:Fx\envrn\SothaDoorOpen.wav
+  DATA: Volume:1.00  Min_Range:255  Max_Range:255
+
+Record: SOUN "sothadoorclose" Flags:0x0000 ()
+  NAME: ID:SothaDoorClose
+  FNAM: Filename:Fx\envrn\SothaDoorClose.wav
+  DATA: Volume:1.00  Min_Range:255  Max_Range:255
+
+Record: SOUN "sothalever" Flags:0x0000 ()
+  NAME: ID:SothaLever
+  FNAM: Filename:Fx\envrn\SothaLever.wav
+  DATA: Volume:1.00  Min_Range:5  Max_Range:150
+
+Record: SOUN "sothablade" Flags:0x0000 ()
+  NAME: ID:SothaBlade
+  FNAM: Filename:Fx\envrn\SothaBlade.wav
+  DATA: Volume:1.00  Min_Range:255  Max_Range:255
+
+Record: SOUN "sothaspikes" Flags:0x0000 ()
+  NAME: ID:SothaSpikes
+  FNAM: Filename:Fx\envrn\SothaSpikes.wav
+  DATA: Volume:1.00  Min_Range:5  Max_Range:150
+
+Record: SOUN "sothagear" Flags:0x0000 ()
+  NAME: ID:SothaGear
+  FNAM: Filename:Fx\envrn\SothaGear.wav
+  DATA: Volume:1.00  Min_Range:5  Max_Range:150
+
+Record: SOUN "sothaspark" Flags:0x0000 ()
+  NAME: ID:SothaSpark
+  FNAM: Filename:Fx\envrn\SothaSparks.wav
+  DATA: Volume:1.00  Min_Range:5  Max_Range:150
+
+Record: SOUN "sothagiantblade" Flags:0x0000 ()
+  NAME: ID:SothaGiantBlade
+  FNAM: Filename:Fx\envrn\SothaGiantBlade.wav
+  DATA: Volume:1.00  Min_Range:255  Max_Range:255
+
+Record: SOUN "sothafabmachine" Flags:0x0000 ()
+  NAME: ID:SothaFabMachine
+  FNAM: Filename:Fx\envrn\SothaFabMachine.wav
+  DATA: Volume:1.00  Min_Range:255  Max_Range:255
+
+Record: SOUN "rock and roll" Flags:0x0000 ()
+  NAME: ID:rock and roll
+  FNAM: Filename:Fx\REGN\rocks4.wav
+  DATA: Volume:1.00  Min_Range:5  Max_Range:255
+
+Record: SOUN "power hummer" Flags:0x0000 ()
+  NAME: ID:power hummer
+  FNAM: Filename:Fx\envrn\forcefield.wav
+  DATA: Volume:1.00  Min_Range:5  Max_Range:150
+
+Record: SOUN "sothaambient" Flags:0x0000 ()
+  NAME: ID:SothaAmbient
+  FNAM: Filename:Fx\envrn\SothaAmbient.wav
+  DATA: Volume:0.50  Min_Range:255  Max_Range:255
+
+Record: SOUN "fabvermleft" Flags:0x0000 ()
+  NAME: ID:fabVermLeft
+  FNAM: Filename:Cr\fabVerm\fabVermLeft.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "fabvermright" Flags:0x0000 ()
+  NAME: ID:fabVermRight
+  FNAM: Filename:Cr\fabVerm\fabVermRight.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "fabvermmoan" Flags:0x0000 ()
+  NAME: ID:fabVermMoan
+  FNAM: Filename:Cr\fabVerm\fabVermMoan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "fabvermroar" Flags:0x0000 ()
+  NAME: ID:fabVermRoar
+  FNAM: Filename:Cr\fabVerm\fabVermRoar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "fabvermscream" Flags:0x0000 ()
+  NAME: ID:fabVermScream
+  FNAM: Filename:Cr\fabVerm\fabVermScream.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "fabhulkmoan" Flags:0x0000 ()
+  NAME: ID:fabHulkMoan
+  FNAM: Filename:Cr\fabHulk\fabHulkMoan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "fabhulkroar" Flags:0x0000 ()
+  NAME: ID:fabHulkRoar
+  FNAM: Filename:Cr\fabHulk\fabHulkRoar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "fabhulkscream" Flags:0x0000 ()
+  NAME: ID:fabHulkScream
+  FNAM: Filename:Cr\fabHulk\fabHulkScream.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "fabbossleft" Flags:0x0000 ()
+  NAME: ID:fabBossLeft
+  FNAM: Filename:Cr\fabBoss\FabBossStepLeft.wav
+  DATA: Volume:1.00  Min_Range:255  Max_Range:255
+
+Record: SOUN "fabbossright" Flags:0x0000 ()
+  NAME: ID:fabBossRight
+  FNAM: Filename:Cr\fabBoss\FabBossStepRight.wav
+  DATA: Volume:1.00  Min_Range:255  Max_Range:255
+
+Record: SOUN "cavein" Flags:0x0000 ()
+  NAME: ID:cavein
+  FNAM: Filename:Fx\REGN\rocks8.wav
+  DATA: Volume:1.00  Min_Range:5  Max_Range:150
+
+Record: SOUN "satchelblast" Flags:0x0000 ()
+  NAME: ID:SatchelBlast
+  FNAM: Filename:Fx\satchel_blast.wav
+  DATA: Volume:1.00  Min_Range:255  Max_Range:255
+
+Record: SOUN "dwemer fan" Flags:0x0000 ()
+  NAME: ID:Dwemer Fan
+  FNAM: Filename:Fx\envrn\Dwemer_Fan.wav
+  DATA: Volume:1.00  Min_Range:5  Max_Range:200
+
+Record: SOUN "sothalab" Flags:0x0000 ()
+  NAME: ID:SothaLab
+  FNAM: Filename:Fx\envrn\SothaLabAmbient.wav
+  DATA: Volume:1.00  Min_Range:5  Max_Range:255
+
+Record: SOUN "fabbossdead" Flags:0x0000 ()
+  NAME: ID:fabBossDead
+  FNAM: Filename:Cr\fabBoss\FabBossDead.wav
+  DATA: Volume:1.00  Min_Range:255  Max_Range:255
+
+Record: SOUN "fabbosshit" Flags:0x0000 ()
+  NAME: ID:FabBossHit
+  FNAM: Filename:Cr\fabBoss\FabBossHit.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "fabbossroar" Flags:0x0000 ()
+  NAME: ID:FabBossRoar
+  FNAM: Filename:Cr\fabBoss\FabBossRoar.wav
+  DATA: Volume:1.00  Min_Range:255  Max_Range:255
+
+Record: SOUN "fabbossalive" Flags:0x0000 ()
+  NAME: ID:FabBossAlive
+  FNAM: Filename:Cr\fabBoss\FabBossAlive.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "mourndayamb" Flags:0x0000 ()
+  NAME: ID:MournDayAmb
+  FNAM: Filename:Fx\envrn\MournExtAmb.wav
+  DATA: Volume:1.00  Min_Range:60  Max_Range:1
+
+Record: SOUN "mournnightamb" Flags:0x0000 ()
+  NAME: ID:MournNightAmb
+  FNAM: Filename:Fx\envrn\MournExtAmbN.wav
+  DATA: Volume:1.00  Min_Range:60  Max_Range:1
+
+Record: SOUN "mourntempleamb" Flags:0x0000 ()
+  NAME: ID:MournTempleAmb
+  FNAM: Filename:Fx\envrn\MournTempleAmb.wav
+  DATA: Volume:0.40  Min_Range:10  Max_Range:20
+
+Record: SOUN "mournspray" Flags:0x0000 ()
+  NAME: ID:MournSpray
+  FNAM: Filename:Fx\envrn\MournFountain.wav
+  DATA: Volume:1.00  Min_Range:10  Max_Range:60
+
+Record: SOUN "mourngates" Flags:0x0000 ()
+  NAME: ID:MournGates
+  FNAM: Filename:Fx\envrn\MournGatesOpen.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "mourngatesclose" Flags:0x0000 ()
+  NAME: ID:MournGatesClose
+  FNAM: Filename:Fx\envrn\MournGatesClose.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "crowdboo" Flags:0x0000 ()
+  NAME: ID:CrowdBoo
+  FNAM: Filename:Fx\boo.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "dwe_waterfall" Flags:0x0000 ()
+  NAME: ID:Dwe_waterfall
+  FNAM: Filename:Fx\envrn\watrfall.wav
+  DATA: Volume:1.00  Min_Range:255  Max_Range:255
+
+Record: SOUN "sothabladeroll" Flags:0x0000 ()
+  NAME: ID:SothaBladeRoll
+  FNAM: Filename:Fx\envrn\lava_flow.wav
+  DATA: Volume:1.00  Min_Range:255  Max_Range:255
+
+Record: SOUN "oil bubbly" Flags:0x0000 ()
+  NAME: ID:oil bubbly
+  FNAM: Filename:Fx\envrn\mudbubbles.wav
+  DATA: Volume:1.00  Min_Range:5  Max_Range:150
+
+Record: SOUN "fabbossclank" Flags:0x0000 ()
+  NAME: ID:FabBossClank
+  FNAM: Filename:Fx\FabBossClank.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "fabbosswhir" Flags:0x0000 ()
+  NAME: ID:FabBossWhir
+  FNAM: Filename:Fx\FabBossWhir.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "fabbossgyro" Flags:0x0000 ()
+  NAME: ID:FabBossGyro
+  FNAM: Filename:Fx\FabBossGryo.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "gate large locked" Flags:0x0000 ()
+  NAME: ID:Gate Large Locked
+  FNAM: Filename:Fx\trans\lrg_gatelatch_lokd.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "fabhulkleft" Flags:0x0000 ()
+  NAME: ID:FabHulkLeft
+  FNAM: Filename:Cr\fabHulk\fabHulkFoot01.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "fabhulkright" Flags:0x0000 ()
+  NAME: ID:FabHulkRight
+  FNAM: Filename:Cr\fabHulk\fabHulkFoot02.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "alma_hit0" Flags:0x0000 ()
+  NAME: ID:Alma_hit0
+  FNAM: Filename:Cr\alamlexia\alamHIT01.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "alma_hit1" Flags:0x0000 ()
+  NAME: ID:Alma_hit1
+  FNAM: Filename:Cr\alamlexia\alamHIT02.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "alma_hit2" Flags:0x0000 ()
+  NAME: ID:Alma_hit2
+  FNAM: Filename:Cr\alamlexia\alamHIT03.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "alma_att0" Flags:0x0000 ()
+  NAME: ID:Alma_att0
+  FNAM: Filename:Cr\alamlexia\alamATT01.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "alma_att1" Flags:0x0000 ()
+  NAME: ID:Alma_att1
+  FNAM: Filename:Cr\alamlexia\alamATT02.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "alma_att2" Flags:0x0000 ()
+  NAME: ID:Alma_att2
+  FNAM: Filename:Cr\alamlexia\alamATT03.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Plugin: Bloodmoon.esm
+
+Record: SOUN "ashstorm" Flags:0x0000 ()
+  NAME: ID:Ashstorm
+  FNAM: Filename:Fx\envrn\wind_lt.wav
+  DATA: Volume:0.50  Min_Range:0  Max_Range:0
+
+Record: SOUN "drgr moan" Flags:0x0000 ()
+  NAME: ID:drgr moan
+  FNAM: Filename:Cr\drgr\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "drgr roar" Flags:0x0000 ()
+  NAME: ID:drgr roar
+  FNAM: Filename:Cr\drgr\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "drgr scream" Flags:0x0000 ()
+  NAME: ID:drgr scream
+  FNAM: Filename:Cr\drgr\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "hrkr moan" Flags:0x0000 ()
+  NAME: ID:hrkr moan
+  FNAM: Filename:Cr\hrkr\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "hrkr roar" Flags:0x0000 ()
+  NAME: ID:hrkr roar
+  FNAM: Filename:Cr\hrkr\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "hrkr scream" Flags:0x0000 ()
+  NAME: ID:hrkr scream
+  FNAM: Filename:Cr\hrkr\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "wolf moan" Flags:0x0000 ()
+  NAME: ID:wolf moan
+  FNAM: Filename:Cr\wolf\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "wolf roar" Flags:0x0000 ()
+  NAME: ID:wolf roar
+  FNAM: Filename:Cr\wolf\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "wolf scream" Flags:0x0000 ()
+  NAME: ID:wolf scream
+  FNAM: Filename:Cr\wolf\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "bear moan" Flags:0x0000 ()
+  NAME: ID:bear moan
+  FNAM: Filename:Cr\bear\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "bear roar" Flags:0x0000 ()
+  NAME: ID:bear roar
+  FNAM: Filename:Cr\bear\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "bear scream" Flags:0x0000 ()
+  NAME: ID:bear scream
+  FNAM: Filename:Cr\bear\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "boar moan" Flags:0x0000 ()
+  NAME: ID:boar moan
+  FNAM: Filename:Cr\boar\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "boar roar" Flags:0x0000 ()
+  NAME: ID:boar roar
+  FNAM: Filename:Cr\boar\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "boar scream" Flags:0x0000 ()
+  NAME: ID:boar scream
+  FNAM: Filename:Cr\boar\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "frgiant moan" Flags:0x0000 ()
+  NAME: ID:frgiant moan
+  FNAM: Filename:Cr\frgt\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "frgiant roar" Flags:0x0000 ()
+  NAME: ID:frgiant roar
+  FNAM: Filename:Cr\frgt\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "frgiant scream" Flags:0x0000 ()
+  NAME: ID:frgiant scream
+  FNAM: Filename:Cr\frgt\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "hirc moan" Flags:0x0000 ()
+  NAME: ID:hirc moan
+  FNAM: Filename:Cr\hirc\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "hirc roar" Flags:0x0000 ()
+  NAME: ID:hirc roar
+  FNAM: Filename:Cr\hirc\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "hirc scream" Flags:0x0000 ()
+  NAME: ID:hirc scream
+  FNAM: Filename:Cr\hirc\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "riek moan" Flags:0x0000 ()
+  NAME: ID:riek moan
+  FNAM: Filename:Cr\riek\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "riek roar" Flags:0x0000 ()
+  NAME: ID:riek roar
+  FNAM: Filename:Cr\riek\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "riek scream" Flags:0x0000 ()
+  NAME: ID:riek scream
+  FNAM: Filename:Cr\riek\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "rmnt moan" Flags:0x0000 ()
+  NAME: ID:rmnt moan
+  FNAM: Filename:Cr\rmnt\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "rmnt roar" Flags:0x0000 ()
+  NAME: ID:rmnt roar
+  FNAM: Filename:Cr\rmnt\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "rmnt scream" Flags:0x0000 ()
+  NAME: ID:rmnt scream
+  FNAM: Filename:Cr\rmnt\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "blight" Flags:0x0000 ()
+  NAME: ID:Blight
+  FNAM: Filename:Fx\envrn\wind_hvy.wav
+  DATA: Volume:0.50  Min_Range:0  Max_Range:0
+
+Record: SOUN "bm blizzard" Flags:0x0000 ()
+  NAME: ID:BM Blizzard
+  FNAM: Filename:Fx\envrn\blight.wav
+  DATA: Volume:0.50  Min_Range:0  Max_Range:0
+
+Record: SOUN "were moan" Flags:0x0000 ()
+  NAME: ID:were moan
+  FNAM: Filename:Cr\were\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "were roar" Flags:0x0000 ()
+  NAME: ID:were roar
+  FNAM: Filename:Cr\were\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "were scream" Flags:0x0000 ()
+  NAME: ID:were scream
+  FNAM: Filename:Cr\were\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "spriggan moan" Flags:0x0000 ()
+  NAME: ID:spriggan moan
+  FNAM: Filename:Cr\sggn\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "spriggan roar" Flags:0x0000 ()
+  NAME: ID:spriggan roar
+  FNAM: Filename:Cr\sggn\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "spriggan scream" Flags:0x0000 ()
+  NAME: ID:spriggan scream
+  FNAM: Filename:Cr\sggn\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "gren roar" Flags:0x0000 ()
+  NAME: ID:gren roar
+  FNAM: Filename:Cr\gren\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "gren scream" Flags:0x0000 ()
+  NAME: ID:gren scream
+  FNAM: Filename:Cr\gren\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "gren moan" Flags:0x0000 ()
+  NAME: ID:gren moan
+  FNAM: Filename:Cr\gren\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "bm wilderness" Flags:0x0000 ()
+  NAME: ID:BM Wilderness
+  FNAM: Filename:Fx\bm_amb00.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "bm wilderness2" Flags:0x0000 ()
+  NAME: ID:BM Wilderness2
+  FNAM: Filename:Fx\bm_amb01.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "bm wilderness3" Flags:0x0000 ()
+  NAME: ID:BM Wilderness3
+  FNAM: Filename:Fx\bm_amb02.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "bm sun" Flags:0x0000 ()
+  NAME: ID:BM Sun
+  FNAM: Filename:Fx\icecollapse.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "bm wind" Flags:0x0000 ()
+  NAME: ID:BM Wind
+  FNAM: Filename:Fx\bm_wind00.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "wolfskel roar" Flags:0x0000 ()
+  NAME: ID:wolfskel roar
+  FNAM: Filename:Cr\wosk\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "wolfskel moan" Flags:0x0000 ()
+  NAME: ID:wolfskel moan
+  FNAM: Filename:Cr\wosk\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "wolfskel scream" Flags:0x0000 ()
+  NAME: ID:wolfskel scream
+  FNAM: Filename:Cr\wosk\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "spriggan resurrect" Flags:0x0000 ()
+  NAME: ID:spriggan resurrect
+  FNAM: Filename:Cr\sggn\sggn magic.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "bearsniff" Flags:0x0000 ()
+  NAME: ID:bearsniff
+  FNAM: Filename:Fx\bearsniff.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "boarsniff" Flags:0x0000 ()
+  NAME: ID:boarsniff
+  FNAM: Filename:Fx\boarsniff.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "hrkrbellow" Flags:0x0000 ()
+  NAME: ID:hrkrbellow
+  FNAM: Filename:Fx\hork.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "sprigganmagic" Flags:0x0000 ()
+  NAME: ID:sprigganmagic
+  FNAM: Filename:Fx\sggnmagic.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "weregrowl" Flags:0x0000 ()
+  NAME: ID:weregrowl
+  FNAM: Filename:Fx\weregrowl.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "werehowl" Flags:0x0000 ()
+  NAME: ID:werehowl
+  FNAM: Filename:Fx\werehowl.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "weresniff" Flags:0x0000 ()
+  NAME: ID:weresniff
+  FNAM: Filename:Fx\weresniff.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "wolfhowl" Flags:0x0000 ()
+  NAME: ID:wolfhowl
+  FNAM: Filename:Fx\wolfhowl.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "wolfskhowl" Flags:0x0000 ()
+  NAME: ID:wolfskhowl
+  FNAM: Filename:Fx\wolfskhowl.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "bm_ice_sheet" Flags:0x0000 ()
+  NAME: ID:BM_Ice_Sheet
+  FNAM: Filename:Fx\icecracking.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "greneat" Flags:0x0000 ()
+  NAME: ID:greneat
+  FNAM: Filename:Fx\eating.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "ice troll roar" Flags:0x0000 ()
+  NAME: ID:ice troll roar
+  FNAM: Filename:Cr\icet\roar.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "ice troll moan" Flags:0x0000 ()
+  NAME: ID:ice troll moan
+  FNAM: Filename:Cr\icet\moan.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "ice troll scream" Flags:0x0000 ()
+  NAME: ID:ice troll scream
+  FNAM: Filename:Cr\icet\scrm.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "bm big fire" Flags:0x0000 ()
+  NAME: ID:BM big fire
+  FNAM: Filename:Fx\bm_large_fire.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "bm pipe small" Flags:0x0000 ()
+  NAME: ID:BM pipe small
+  FNAM: Filename:Fx\bm_pipe02.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "bm pipe medium" Flags:0x0000 ()
+  NAME: ID:BM pipe medium
+  FNAM: Filename:Fx\bm_pipe00.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "bm pipe large" Flags:0x0000 ()
+  NAME: ID:BM pipe large
+  FNAM: Filename:Fx\bm_pipe01.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "bm nord attack" Flags:0x0000 ()
+  NAME: ID:BM Nord attack
+  FNAM: Filename:Fx\BM_nord_attack.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "wolfequip1" Flags:0x0000 ()
+  NAME: ID:WolfEquip1
+  FNAM: Filename:Cr\were\wolf growl 14.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "wolfequip2" Flags:0x0000 ()
+  NAME: ID:WolfEquip2
+  FNAM: Filename:Cr\were\wolf growl 01.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "wolfequip3" Flags:0x0000 ()
+  NAME: ID:WolfEquip3
+  FNAM: Filename:Cr\were\wolf growl 09.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "wolfequip4" Flags:0x0000 ()
+  NAME: ID:WolfEquip4
+  FNAM: Filename:Cr\were\wolf growl 12.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "wolfequip5" Flags:0x0000 ()
+  NAME: ID:WolfEquip5
+  FNAM: Filename:Cr\were\wolf growl 03.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "wolfswing" Flags:0x0000 ()
+  NAME: ID:WolfSwing
+  FNAM: Filename:Cr\were\wolf attack 03.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "wolfswing1" Flags:0x0000 ()
+  NAME: ID:WolfSwing1
+  FNAM: Filename:Cr\were\wolf attack 01.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "wolfswing2" Flags:0x0000 ()
+  NAME: ID:WolfSwing2
+  FNAM: Filename:Cr\were\wolf attack 02.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "wolfswing3" Flags:0x0000 ()
+  NAME: ID:WolfSwing3
+  FNAM: Filename:Cr\were\wolf attack 03.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "wolfhit1" Flags:0x0000 ()
+  NAME: ID:WolfHit1
+  FNAM: Filename:Cr\were\wolf hit 01.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "wolfhit2" Flags:0x0000 ()
+  NAME: ID:WolfHit2
+  FNAM: Filename:Cr\were\wolf hit 02.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "wolfhit3" Flags:0x0000 ()
+  NAME: ID:WolfHit3
+  FNAM: Filename:Cr\were\wolf hit 03.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "wolfcontainer1" Flags:0x0000 ()
+  NAME: ID:WolfContainer1
+  FNAM: Filename:Cr\were\wolf pissed 03.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "wolfcontainer2" Flags:0x0000 ()
+  NAME: ID:WolfContainer2
+  FNAM: Filename:Cr\were\wolf pissed 12.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "wolfnpc1" Flags:0x0000 ()
+  NAME: ID:WolfNPC1
+  FNAM: Filename:Cr\were\wolf howl 01.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "wolfnpc2" Flags:0x0000 ()
+  NAME: ID:WolfNPC2
+  FNAM: Filename:Cr\were\wolf howl 01.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "wolfnpc3" Flags:0x0000 ()
+  NAME: ID:WolfNPC3
+  FNAM: Filename:Cr\were\wolf howl 01.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "wolfcreature1" Flags:0x0000 ()
+  NAME: ID:WolfCreature1
+  FNAM: Filename:Cr\were\wolf pissed 02.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "wolfcreature2" Flags:0x0000 ()
+  NAME: ID:WolfCreature2
+  FNAM: Filename:Cr\were\wolf pissed 10.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "wolfcreature3" Flags:0x0000 ()
+  NAME: ID:WolfCreature3
+  FNAM: Filename:Cr\were\wolf pissed 07.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "wolfactivator1" Flags:0x0000 ()
+  NAME: ID:WolfActivator1
+  FNAM: Filename:Cr\were\wolf pissed 10.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "wolfitem1" Flags:0x0000 ()
+  NAME: ID:WolfItem1
+  FNAM: Filename:Cr\were\wolf pissed 02.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "wolfitem2" Flags:0x0000 ()
+  NAME: ID:WolfItem2
+  FNAM: Filename:Cr\were\wolf pissed 03.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "wolfitem3" Flags:0x0000 ()
+  NAME: ID:WolfItem3
+  FNAM: Filename:Cr\were\wolf pissed 07.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "wolfrun" Flags:0x0000 ()
+  NAME: ID:WolfRun
+  FNAM: Filename:Cr\were\wolf pant.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "frgtleft" Flags:0x0000 ()
+  NAME: ID:frgtLeft
+  FNAM: Filename:Cr\frgt\frgtLeft.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "frgtright" Flags:0x0000 ()
+  NAME: ID:frgtRight
+  FNAM: Filename:Cr\frgt\frgtRight.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "hrkleft" Flags:0x0000 ()
+  NAME: ID:hrkLeft
+  FNAM: Filename:Cr\hrkr\hrkLeft.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "hrkright" Flags:0x0000 ()
+  NAME: ID:hrkRight
+  FNAM: Filename:Cr\hrkr\hrkRight.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "skaalattacknoise" Flags:0x0000 ()
+  NAME: ID:SkaalAttackNoise
+  FNAM: Filename:Fx\SkaalWolfAttack.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "windbag" Flags:0x0000 ()
+  NAME: ID:WindBag
+  FNAM: Filename:Fx\BMWind.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "stonesound" Flags:0x0000 ()
+  NAME: ID:StoneSound
+  FNAM: Filename:Fx\BMstone.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0
+
+Record: SOUN "bm nord attackf" Flags:0x0000 ()
+  NAME: ID:BM Nord attackF
+  FNAM: Filename:Fx\BM_Nord_attack_F.wav
+  DATA: Volume:1.00  Min_Range:0  Max_Range:0

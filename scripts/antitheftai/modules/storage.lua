@@ -108,6 +108,14 @@ function storageModule.retrieveNPCData(npcId, currentCell, util)
 end
 
 -- Save all NPCs in cell
+-- Clear NPC data
+function storageModule.clearNPCData(npcId)
+    local key = "npc_" .. tostring(npcId)
+    npcDataStorage:set(key, nil)
+    log("Cleared stored data for NPC", npcId)
+end
+
+-- Save all NPCs in cell
 function storageModule.saveAllNPCsInCell(cell, nearby, types, util)
     if not cell then return end
 

@@ -55,9 +55,12 @@ function utils.getEulerAngles(rotation)
 end
 
 -- Calculate ring position around player
-function utils.ring(playerPos, npcPos, desiredDist)
+function utils.ring(playerPos, npcPos, desiredDistMin, desiredDistMax)
     local d = npcPos - playerPos
     if d:length() < 1 then d = util.vector3(1, 0, 0) end
+    
+    -- Use random distance between min and max
+    local desiredDist = desiredDistMin + math.random() * (desiredDistMax - desiredDistMin)
     return playerPos + d:normalize() * desiredDist
 end
 

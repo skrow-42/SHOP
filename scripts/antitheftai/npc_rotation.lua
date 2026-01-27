@@ -72,7 +72,8 @@ local function onStartAIPackage(data)
     if data.type == 'Travel' then
         AI.startPackage({
             type = 'Travel',
-            destPosition = data.destPosition
+            destPosition = data.destPosition,
+            faceTarget = data.faceTarget  -- Support face target for keeping NPC facing player
         })
         isControlled = true
     elseif data.type == 'Wander' then

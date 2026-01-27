@@ -28,9 +28,11 @@ local utils       = require('scripts.antitheftai.modules.utils')
 local storage     = require('scripts.antitheftai.modules.storage')   -- module version
 local detection   = require('scripts.antitheftai.modules.detection')
 local classification = require('scripts.antitheftai.modules.npc_classification')
+local companionDetection = require('scripts.antitheftai.modules.companion_detection')
 local pathModule  = require('scripts.antitheftai.modules.path_recording')
 local doorModule  = require('scripts.antitheftai.modules.door_transitions')
 local state = require('scripts.antitheftai.modules.state')
+local types = require('openmw.types')
 
 -- Local hardcoded NPC voice response table based on race and gender
 local guardActions = require('scripts.antitheftai.modules.guard_actions')
@@ -80,7 +82,8 @@ end))
 settings.distances:subscribe(async:callback(function(_, key)
     if key == nil or key == 'searchWDist' then config.SEARCH_WDIST = settings.distances:get('searchWDist') or 1000 end
     if key == nil or key == 'pickRange' then config.PICK_RANGE = settings.distances:get('pickRange') or 1000 end
-    if key == nil or key == 'desiredDist' then config.DESIRED_DIST = settings.distances:get('desiredDist') or 100 end
+    if key == nil or key == 'desiredDistMin' then config.DESIRED_DIST_MIN = settings.distances:get('desiredDistMin') or 100 end
+    if key == nil or key == 'desiredDistMax' then config.DESIRED_DIST_MAX = settings.distances:get('desiredDistMax') or 350 end
     if key == nil or key == 'losRange' then config.LOS_RANGE = settings.distances:get('losRange') or 1000 end
 end))
 
@@ -301,6 +304,12 @@ local function pickGuard(allowCurrentGuard)
                     end
 
                     if not isDismissed then
+                        -- Skip vanilla companions (NPCs following player via AI packages)
+                        if companionDetection.isCompanion(actor, self, state) then
+                            log("NPC", actor.id, "is a vanilla companion - skipping recruitment")
+                            goto continue
+                        end
+
                         -- Check disposition threshold
                         local npcDisposition = types.NPC.getDisposition(actor, self) or 50
                         log("Checking NPC", actor.id, "- disposition:", npcDisposition, "threshold:", dispositionThreshold)
@@ -636,12 +645,18 @@ local function checkDoorStateChanges()
                     lastCheckTime = currentTime
                 }
             else
-                -- New door, initialize it
+                -- New door discovered after cell load, initialize it
                 log("[DOOR STATE] New door detected, initializing:", doorId, "(", doorName, ")")
                 doorStates[doorId] = {
-                    wasLocked = isLocked,
+                    wasLocked = isLocked,  -- Initialize with current state to prevent false triggering
                     lastCheckTime = currentTime
                 }
+                
+                if isLocked then
+                    log("[DOOR STATE] New door is already locked - will not trigger unlock (not player-locked)")
+                else
+                    log("[DOOR STATE] New door is unlocked - tracking for future lock changes")
+                end
 
                 -- Do NOT sync with global script on initialization
                 -- Only sync when actual state changes are detected
@@ -711,12 +726,18 @@ local function checkDoorStateChanges()
                     lastCheckTime = currentTime
                 }
             else
-                -- New door, initialize it
+                -- New door discovered after cell load, initialize it
                 log("[DOOR STATE] New door detected, initializing:", doorId, "(", doorName, ")")
                 doorStates[doorId] = {
-                    wasLocked = isLocked,
+                    wasLocked = isLocked,  -- Initialize with current state to prevent false triggering
                     lastCheckTime = currentTime
                 }
+                
+                if isLocked then
+                    log("[DOOR STATE] New door is already locked - will not trigger unlock (not player-locked)")
+                else
+                    log("[DOOR STATE] New door is unlocked - tracking for future lock changes")
+                end
 
                 -- Do NOT sync with global script on initialization
                 -- Only sync when actual state changes are detected
@@ -1877,6 +1898,12 @@ local function onUpdate(dt)
                                 end
 
                                 if not isDismissed then
+                                    -- Skip if this is a merchant that just returned home
+                                    if state.merchantJustReturned == actor.id then
+                                        log("ForceLOSCheck - Skipping merchant", actor.id, "- just returned home, waiting for LoS loss")
+                                        goto continue
+                                    end
+                                    
                                     -- Check disposition threshold
                                     local npcDisposition = types.NPC.getDisposition(actor, self) or 50
                                     log("ForceLOSCheck - Checking NPC", actor.id, "- disposition:", npcDisposition, "threshold:", dispositionThreshold)
@@ -2042,11 +2069,24 @@ local function onUpdate(dt)
             state.tAIPackageCleanup = (state.tAIPackageCleanup or 0) + dt
             if state.tAIPackageCleanup >= 2.0 then
                 state.tAIPackageCleanup = 0
+                
+                -- Check if this is a service NPC (merchant)
+                local isServiceNPC = false
                 if state.guard and state.guard:isValid() then
+                    isServiceNPC = classification.hasServices(state.guard, types)
+                end
+                
+                -- Only clean up and re-send follow for non-service NPCs or when not returning to counter
+                if state.guard and state.guard:isValid() and not state.returningToCounter and not isServiceNPC then
                     -- Remove AI packages to prevent greeting/hello packages
                     state.guard:sendEvent('RemoveAIPackages')
                     -- Re-send following immediately
                     actions.followPlayer(state, self, config)
+                    log("[AI CLEANUP] Re-sent follow command for non-service NPC")
+                elseif state.returningToCounter then
+                    log("[AI CLEANUP] Skipping cleanup - NPC returning to counter")
+                elseif isServiceNPC then
+                    log("[AI CLEANUP] Skipping cleanup - Service NPC (managed by service logic)")
                 end
             end
 
@@ -2116,27 +2156,196 @@ local function onUpdate(dt)
                     state.tRefresh = 0
                     state.lastSeenPlayer = self.position
                     local d = (state.guard.position - self.position):length()
-                    if math.abs(d - config.DESIRED_DIST) > config.DIST_TOLERANCE then
-                        actions.followPlayer(state, self, config)
+                    
+                    -- DEBUG: Log distance and home state periodically
+                    state.debugCounter = (state.debugCounter or 0) + 1
+                    if state.debugCounter >= 4 then -- Every 4 ticks (approx 2 seconds)
+                        state.debugCounter = 0
+                        if state.home and state.home.pos then
+                            local dist = (state.guard.position - state.home.pos):length()
+                            log("[DEBUG] Guard:", state.guard.id, "Dist:", string.format("%.1f", dist), "Outside:", tostring(state.npcWasOutsideRadius), "Home:", state.home.pos)
+                        else
+                            log("[DEBUG] Guard:", state.guard.id, "NO HOME DATA")
+                        end
+                    end
+                    
+                    -- Check if guard has services (merchant, trainer, etc.)
+                    local hasServices = classification.hasServices(state.guard, types)
+                    local guardHasBarter = classification.isMerchant(state.guard, types)
+                    
+                    if state.debugCounter == 0 then
+                        log("[DEBUG] guardHasBarter:", tostring(guardHasBarter))
+                    end
+                    
+                    -- PRIORITY: Return to counter if merchant has left post and is within 400 units
+                    if guardHasBarter and state.home and state.home.pos and state.npcWasOutsideRadius then
+                        local npcDistToHome = (state.guard.position - state.home.pos):length()
+                        
+                        if npcDistToHome <= 320 and not state.returningToCounter then
+                        log("[SERVICE NPC] *** PRIORITY: Within 320 units after leaving - start returning ***")
+                            -- Send Travel package immediately
+                            state.guard:sendEvent('StartAIPackage', {
+                                type = 'Travel',
+                                destPosition = state.home.pos,
+                                cancelOther = true
+                            })
+                            state.returningToCounter = core.getRealTime()
+                        end
+                        
+                        if state.returningToCounter then
+                            -- Merchant is returning to counter
+                            if npcDistToHome > 25 then
+                                -- Still traveling - log progress
+                                log("[SERVICE NPC] Merchant returning to counter. Dist: " .. string.format("%.1f", npcDistToHome))
+                            else
+                                -- Arrived at counter - send global event to handle rotation
+                                log("[SERVICE NPC] Merchant arrived at counter. Finalizing position and rotation.")
+                                
+                                -- Send global event to finalize return with rotation
+                                local rotX, rotY, rotZ = utils.getEulerAngles(state.home.rot)
+                                core.sendGlobalEvent('AntiTheft_FinalizeReturn', {
+                                    npcId = state.guard.id,
+                                    homePosition = state.home.pos,
+                                    homeRotation = { x = rotX, y = rotY, z = rotZ }
+                                })
+                                
+                                -- Clear merchant-specific state
+                                local guardId = state.guard.id
+                                state.guard = nil
+                                state.following = false
+                                state.returningToCounter = false
+                                state.npcWasOutsideRadius = false
+                                state.guardPriority = 999
+                                state.activeGuards[guardId] = nil
+                                
+                                -- Set flag to prevent immediate re-recruitment
+                                state.merchantJustReturned = guardId
+                                
+                                log("[SERVICE NPC] Merchant state cleared. Will not re-recruit until player loses LoS.")
+                            end
+                        end
+                    end
+                    
+                    -- Only continue with normal logic if guard exists and not returning to counter
+                    if state.guard and state.guard:isValid() and not state.returningToCounter and hasServices then
+                        -- Check if player is out of LoS
+                        local hasLoS = detection.canNpcSeePlayer(state.guard, self, nearby, types, config)
+                        
+                        if not hasLoS then
+                            -- Out of LoS: Clear merchantJustReturned flag if set
+                            if state.merchantJustReturned then
+                                log("[SERVICE NPC] Player lost LoS - clearing merchantJustReturned flag for", state.merchantJustReturned)
+                                state.merchantJustReturned = nil
+                            end
+                            
+                            -- Follow the player to find them
+                            if guardHasBarter and state.home and state.home.pos then
+                                local distanceToHome = (state.guard.position - state.home.pos):length()
+                                log("[SERVICE NPC] No LoS. NPC distance to home: " .. string.format("%.1f", distanceToHome))
+                                
+                                -- Only dismiss if already returning to counter, otherwise follow
+                                if state.returningToCounter and distanceToHome < 500 then
+                                    log("[SERVICE NPC] Merchant returning to counter and lost LoS - dismissing")
+                                    actions.goHome(state, core)
+                                else
+                                    log("[SERVICE NPC] Merchant lost LoS - following player to find them")
+                                    -- Don't set npcWasOutsideRadius here - let the distance check below handle it
+                                    actions.followPlayer(state, self, config)
+                                end
+                            else
+                                -- Fallback: Service NPC lost LoS but missing home data - follow anyway
+                                log("[SERVICE NPC] Service NPC lost LoS (no home data) - following player")
+                                actions.followPlayer(state, self, config)
+                            end
+                        else
+                            -- Player has LoS: Check distance logic
+                            if guardHasBarter and state.home and state.home.pos then
+                                local playerDistToHome = (self.position - state.home.pos):length()
+                                local npcDistToHome = (state.guard.position - state.home.pos):length()
+                                
+                                log("[SERVICE NPC] LoS Active. Player dist to home: " .. string.format("%.1f", playerDistToHome) .. ", NPC dist to home: " .. string.format("%.1f", npcDistToHome))
+                                
+                                -- Track when NPC is outside the 400-unit radius
+                                if npcDistToHome > 400 then
+                                    if not state.npcWasOutsideRadius then
+                                        log("[SERVICE NPC] NPC is now OUTSIDE 400-unit radius (tracking)")
+                                        state.npcWasOutsideRadius = true
+                                    end
+                                    
+                                    -- Normal following logic when outside radius
+                                    if playerDistToHome > 400 then
+                                        if state.returningToCounter then
+                                            state.returningToCounter = false
+                                            log("[SERVICE NPC] Player moved > 400 units away - Resuming follow")
+                                        end
+                                        if not state.returningToCounter then
+                                            actions.followPlayer(state, self, config)
+                                        end
+                                    end
+                                else
+                                    -- NPC is within 400 units of home
+                                    if state.npcWasOutsideRadius then
+                                        log("[SERVICE NPC] *** NPC ENTERED 400-unit radius (was outside before) ***")
+                                        
+                                        if npcDistToHome > 50 then
+                                            if not state.returningToCounter then
+                                                -- Only start returning if not already returning
+                                                log("[SERVICE NPC] NPC entered 400-unit radius. Sending merchant home. Dist: " .. string.format("%.1f", npcDistToHome))
+                                                state.guard:sendEvent('StartAIPackage', {
+                                                    type = 'Travel',
+                                                    destPosition = state.home.pos,
+                                                    cancelOther = true
+                                                })
+                                                state.returningToCounter = core.getRealTime()
+                                            else
+                                                log("[SERVICE NPC] Already returning to counter - skipping duplicate Travel package")
+                                            end
+                                        else
+                                            -- Arrived at counter - send global event to handle rotation
+                                            log("[SERVICE NPC] Merchant arrived at counter. Finalizing position and rotation.")
+                                            
+                                            -- Send global event to finalize return with rotation
+                                            local rotX, rotY, rotZ = utils.getEulerAngles(state.home.rot)
+                                            core.sendGlobalEvent('AntiTheft_FinalizeReturn', {
+                                                npcId = state.guard.id,
+                                                homePosition = state.home.pos,
+                                                homeRotation = { x = rotX, y = rotY, z = rotZ }
+                                            })
+                                            
+                                            -- Clear merchant-specific state
+                                            local guardId = state.guard.id
+                                            state.guard = nil
+                                            state.following = false
+                                            state.returningToCounter = false
+                                            state.npcWasOutsideRadius = false
+                                            state.guardPriority = 999
+                                            state.activeGuards[guardId] = nil
+                                            
+                                            -- Set flag to prevent immediate re-recruitment
+                                            state.merchantJustReturned = guardId
+                                            
+                                            log("[SERVICE NPC] Merchant state cleared. Will not re-recruit until player loses LoS.")
+                                         end
+                                    else
+                                        -- NPC is within 400 units but never left - stay at counter while LoS
+                                        log("[SERVICE NPC] NPC within 400 units (never left radius) - staying at counter")
+                                    end
+                                end
+                            else
+                                -- Fallback for non-barter service NPCs or missing home data
+                                log("[SERVICE NPC] Keeping service NPC", state.guard.id, "stationary while player in LoS")
+                            end
+                        end
+                    else
+                        -- Normal NPC (not service NPC): check if guard is outside the desired distance range (with tolerance)
+                        if not state.returningToCounter and (d < (config.DESIRED_DIST_MIN - config.DIST_TOLERANCE) or d > (config.DESIRED_DIST_MAX + config.DIST_TOLERANCE)) then
+                            actions.followPlayer(state, self, config)
+                        end
                     end
                 end
             end
 
-            if isSneakHidden and not state.justRecruitedAfterReturn then
-                log("*** PLAYER BECAME STEALTHED WHILE FOLLOWING ***")
-                actions.startSearch(state, detection, config)
-                lowerCellDisposition()
-            else
-                state.tRefresh = state.tRefresh + dt
-                if state.tRefresh >= config.UPDATE_PERIOD then
-                    state.tRefresh = 0
-                    state.lastSeenPlayer = self.position
-                    local d = (state.guard.position - self.position):length()
-                    if math.abs(d - config.DESIRED_DIST) > config.DIST_TOLERANCE then
-                        actions.followPlayer(state, self, config)
-                    end
-                end
-            end
+
 
             -- Check door investigation progress
             if state.investigatingDoor and state.doorPosition then

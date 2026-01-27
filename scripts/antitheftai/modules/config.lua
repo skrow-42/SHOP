@@ -39,7 +39,8 @@ config.PATH_SAMPLE_INTERVAL = settings.timing:get('pathSampleInterval') or 1.0
 -- Distances (now configurable via settings)
 config.SEARCH_WDIST = settings.distances:get('searchWDist') or 1000
 config.PICK_RANGE = settings.distances:get('pickRange') or 1000
-config.DESIRED_DIST = settings.distances:get('desiredDist') or 100
+config.DESIRED_DIST_MIN = settings.distances:get('desiredDistMin') or 80
+config.DESIRED_DIST_MAX = settings.distances:get('desiredDistMax') or 250
 config.DIST_TOLERANCE = 50
 config.LOS_RANGE = settings.distances:get('losRange') or 1000
 config.MIN_MOVEMENT_THRESHOLD = 10
@@ -84,7 +85,7 @@ config.DISABLED_CELL_NAMES = {"imperial prison ship", "mournhold, godsreach", "m
 -- example: config.DISABLED_NPC_NAME_CONTAINS = {"farg", "cosad"} , disables every NPC name containing added words
 config.DISABLED_NPC_NAME_CONTAINS = {}
 -- example: config.DISABLED_CELL_NAME_CONTAINS = {"kogo", "adama"} , disables every cell name containing added words
-config.DISABLED_CELL_NAME_CONTAINS = {"arena", "museum", "abecette", "canalworks", "plaza", "waistworks", "bath"}
+config.DISABLED_CELL_NAME_CONTAINS = {"arena", "museum", "abecette", "canal", "plaza", "waistworks", "bath"}
 
 -- Exterior cell exceptions (exact names that allow script activation, ie )
 config.ENABLED_EXTERIOR_CELLS = {

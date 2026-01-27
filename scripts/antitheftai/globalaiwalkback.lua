@@ -118,6 +118,7 @@ local npcRaceGenderCache = {}
 local monitorDoorLocksDuringCombat = false
 local combatDoorStates = {}
 local doorLockStates = {}
+local doorLockStatesJustInitialized = false  -- Flag to skip first check after initialization
 local combatDoorInvestigation = {}  -- Track NPCs approaching doors during combat
 local npcsInCombatWithPlayer = {}  -- Track which NPCs are in combat with player (npcId -> true)
 local pendingBountyChecks = {}  -- Track pending bounty checks waiting for LoS verification after unlock (doorId -> {npcId, bountyAmount, timestamp})
@@ -2730,33 +2731,38 @@ return {
                             doorLockStates[doorId] = lockLevel
                         end
                     end
-                    log("[DOOR LOCK MONITORING] Initialized door lock states for", tableSize(doorLockStates), "doors")
+                    doorLockStatesJustInitialized = true  -- Set flag to skip next check
+                    log("[DOOR LOCK MONITORING] Initialized door lock states for", tableSize(doorLockStates), "doors - skipping change detection on next cycle")
                 end
 
-                -- Check for door lock level changes
-                local lockLevelChanged = false
-                local changedDoorId = nil
-                local newLockLevel = nil
+                -- Check for door lock level changes (skip if just initialized)
+                if doorLockStatesJustInitialized then
+                    log("[DOOR LOCK MONITORING] Skipping lock change detection - door states just initialized")
+                    doorLockStatesJustInitialized = false  -- Reset flag for next cycle
+                else
+                    local lockLevelChanged = false
+                    local changedDoorId = nil
+                    local newLockLevel = nil
 
-                for _, door in ipairs(player.cell:getAll(types.Door)) do
-                    if door then
-                        local doorId = door.id
-                        local isLocked = types.Lockable.isLocked(door)
-                        local rawLockLevel = types.Lockable.getLockLevel(door)
-                        local currentLockLevel = isLocked and rawLockLevel or 0
-                        local previousLockLevel = doorLockStates[doorId] or 0
+                    for _, door in ipairs(player.cell:getAll(types.Door)) do
+                        if door then
+                            local doorId = door.id
+                            local isLocked = types.Lockable.isLocked(door)
+                            local rawLockLevel = types.Lockable.getLockLevel(door)
+                            local currentLockLevel = isLocked and rawLockLevel or 0
+                            local previousLockLevel = doorLockStates[doorId] or 0
 
-                        if currentLockLevel ~= previousLockLevel then
-                            lockLevelChanged = true
-                            changedDoorId = doorId
-                            newLockLevel = currentLockLevel
-                            log("[DOOR LOCK MONITORING] Door", doorId, "lock level changed from", previousLockLevel, "to", currentLockLevel)
+                            if currentLockLevel ~= previousLockLevel then
+                                lockLevelChanged = true
+                                changedDoorId = doorId
+                                newLockLevel = currentLockLevel
+                                log("[DOOR LOCK MONITORING] Door", doorId, "lock level changed from", previousLockLevel, "to", currentLockLevel)
 
-                            -- Update stored lock level
-                            doorLockStates[doorId] = currentLockLevel
+                                -- Update stored lock level
+                                doorLockStates[doorId] = currentLockLevel
+                            end
                         end
                     end
-                end
 
                 -- If a door lock level changed and it's now locked, trigger detection pulse
                 if lockLevelChanged and newLockLevel and newLockLevel > 0 then
@@ -2900,6 +2906,7 @@ return {
                         log("[DOOR LOCK MONITORING] No NPCs found within 1000 units")
                     end
                 end
+            end  -- Close the else block for lock change detection
         end
 
            

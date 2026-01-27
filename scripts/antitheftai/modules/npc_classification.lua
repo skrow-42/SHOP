@@ -360,4 +360,66 @@ function classification.isPlayerInFaction(factionName, self, types)
     log("Player is NOT in faction:", factionName)
     return false
 end
+
+-- Check if NPC has any services (merchant, trainer, etc.)
+function classification.hasServices(npc, types)
+    if not npc or not npc:isValid() then return false end
+
+    -- Check services via API
+    if types.NPC.getServicesOffered then
+        local services = types.NPC.getServicesOffered(npc)
+        if services then
+            if services.Barter or services.Training or services.Spellmaking or
+               services.Enchanting or services.Repair or services.Travel then
+                return true
+            end
+        end
+    end
+
+    -- Fallback: check class names
+    local npcClass = types.NPC.record(npc).class
+    if not npcClass then return false end
+    local className = npcClass:lower()
+
+    if className:find("merchant") or className:find("trader") or
+       className:find("pawnbroker") or className:find("smith") or
+       className:find("alchemist") or className:find("bookseller") or
+       className:find("clothier") or className:find("trainer") or
+       className:find("master") or className:find("enchanter") or
+       className:find("spellmaker") or className:find("priest") or
+       className:find("healer") or className:find("caravaner") or
+       className:find("shipmaster") then
+        return true
+    end
+
+    return false
+end
+
+-- Check if NPC is a merchant (Barter service or class name)
+function classification.isMerchant(npc, types)
+    if not npc or not npc:isValid() then return false end
+
+    -- Check services via API
+    if types.NPC.getServicesOffered then
+        local services = types.NPC.getServicesOffered(npc)
+        if services and services.Barter then
+            return true
+        end
+    end
+
+    -- Fallback: check class names
+    local npcClass = types.NPC.record(npc).class
+    if not npcClass then return false end
+    local className = npcClass:lower()
+
+    if className:find("merchant") or className:find("trader") or
+       className:find("pawnbroker") or className:find("smith") or
+       className:find("alchemist") or className:find("bookseller") or
+       className:find("clothier") or className:find("outfitter") then
+        return true
+    end
+
+    return false
+end
+
 return classification

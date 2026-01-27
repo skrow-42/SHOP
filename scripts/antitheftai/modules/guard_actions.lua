@@ -179,6 +179,12 @@ function actions.recruit(npc, state, detection, self)
     end
     state.guardPriority = classification.getNPCPriority(npc, types, self, npc.cell, config, require('openmw.nearby'))
     state.home = state.npcOriginalData[npc.id]
+    
+    if state.home then
+        log("[RECRUIT] Assigned state.home for NPC", npc.id, "Pos:", state.home.pos, "Rot:", state.home.rot)
+    else
+        log("[RECRUIT] WARNING: state.home is NIL for NPC", npc.id)
+    end
 
     -- Set guard per cell
     state.guardsPerCell[cellName] = { guard = npc, following = false }
@@ -240,9 +246,32 @@ function actions.followPlayer(state, self, config)
         log("[FOLLOW] Sent event to set alarm to 100 for NPC", state.guard.id, "(original was", state.originalAlarmValues[state.guard.id], ")")
     end
 
+    -- Check if this is a service NPC at their counter
+    local classification = require('scripts.antitheftai.modules.npc_classification')
+    local detection = require('scripts.antitheftai.modules.detection')
+    local types = require('openmw.types')
+    local nearby = require('openmw.nearby')
+    local hasServices = classification.hasServices(state.guard, types)
+    
+    if hasServices then
+        local hasLoS = detection.canNpcSeePlayer(state.guard, self, nearby, types, config)
+        if hasLoS and state.home and state.home.pos then
+            local npcDistToHome = (state.guard.position - state.home.pos):length()
+            if npcDistToHome <= 400 and not state.npcWasOutsideRadius then
+                log("[FOLLOW] Service NPC at counter with LoS - not sending Travel package")
+                state.following = true
+                state.searching = false
+                state.returningHome = false
+                state.lastSeenPlayer = self.position
+                return  -- Exit early, don't send Travel package
+            end
+        end
+    end
+
     state.guard:sendEvent('StartAIPackage', {
         type = 'Travel',
-        destPosition = utils.ring(self.position, state.guard.position, config.DESIRED_DIST),
+        destPosition = utils.ring(self.position, state.guard.position, config.DESIRED_DIST_MIN, config.DESIRED_DIST_MAX),
+        faceTarget = self,  -- Make guard face the player when they stop
         cancelOther = true
     })
 

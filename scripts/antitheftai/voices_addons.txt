@@ -1,0 +1,264 @@
+Argonian
+Female
+Response: Hiss. 
+File: Vo\a\f\Thf_AF004.mp3 
+Response: Stop! 
+File: Vo\a\f\Thf_AF003.mp3 
+Response: No! Thief! 
+File: Vo\a\f\Thf_AF002.mp3 
+Response: Stop the thief! 
+File: Vo\a\f\Thf_AF001.mp3 
+Male
+Response: I see you! 
+File: vo\a\m\Thf_AM005.mp3 
+Response: Scoundrel. 
+File: vo\a\m\Thf_AM001.mp3 
+Breton
+Female
+Response: I saw that! 
+File: vo\b\f\Thf_BF003.mp3 
+Response: This is outrageous. Guards! 
+File: vo\b\f\Thf_BF002.mp3 
+Response: You scoundrel! 
+File: vo\b\f\Thf_BF001.mp3 
+Response: Do you take me for a fool! 
+File: vo\b\f\Thf_BF005.mp3 
+Male
+Response: What do you think you're doing?! 
+File: vo\b\m\Thf_BM004.mp3 
+Response: You cowardly thief! 
+File: vo\b\m\Thf_BM003.mp3 
+Response: Guards! 
+File: vo\b\m\Thf_BM002.mp3 
+Response: Do you take me for a fool! 
+File: vo\b\m\Thf_BM005.mp3 
+Dark Elf
+Female
+Response: Filthy S'wit! 
+File: Vo\d\f\Hlo_DF027.mp3 
+Response: Help! 
+File: Vo\d\f\Thf_DF003.mp3 
+Response: Filthy S'wit! 
+File: Vo\d\f\Hlo_DF027.mp3 
+Male
+Response: That is quite enough thief! 
+File: vo\d\m\Thf_DM004.mp3 
+Response: You're finished! 
+File: vo\d\m\Thf_DM003.mp3 
+Response: Wretched thief! 
+File: vo\d\m\Thf_DM002.mp3 
+Response: I'll deal with you thief! 
+File: vo\d\m\Thf_DM001.mp3 
+Response: Help, guards! 
+File: vo\d\m\Thf_DM005.mp3
+Response: Maybe I'll throw you into the river. How'd like that, you thief?
+File: Vo\at_ord\ATOrd_Thf01.mp3
+High Elf
+Female
+Response: You scoundrel! You won't get away with this! Thief! 
+File: vo\h\f\Thf_HF004.mp3 
+Response: Help! Thief! 
+File: vo\h\f\Thf_HF003.mp3 
+Response: You've been caught! Guards! 
+File: vo\h\f\Thf_HF002.mp3 
+Response: Why, you little thief! Come back! 
+File: vo\h\f\Thf_HF001.mp3 
+Response: There is no escape! 
+File: vo\h\f\Thf_HF005.mp3 
+Male
+Response: Thief! 
+File: vo\h\m\Thf_HM004.mp3 
+Response: You'll get more than you bargained for, thief! 
+File: vo\h\m\Thf_HM003.mp3 
+Response: Thievery is a serious offense! Guards! 
+File: vo\h\m\Thf_HM002.mp3 
+Response: Do you take me for a fool? Guards! 
+File: vo\h\m\Thf_HM001.mp3 
+Response: You can't escape! 
+File: vo\h\m\Thf_HM005.mp3 
+Imperial
+Female
+Response: You've made your last mistake! Thief! 
+File: Vo\i\f\Thf_IF003.mp3 
+Response: You've stolen for the last time! 
+File: Vo\i\f\Thf_IF002.mp3 
+Response: Help! Guards! A thief! 
+File: Vo\i\f\Thf_IF001.mp3 
+Male
+Response: Help! Guards! A thief! 
+File: Vo\i\m\Thf_IM001.mp3 
+Response: You've stolen for the last time! 
+File: Vo\i\m\Thf_IM002.mp3 
+Response: You've made your last mistake thief! 
+File: Vo\i\m\Thf_IM003.mp3 
+Khajiit
+Female
+Response: You can't escape! 
+File: vo\k\f\Thf_KF004.mp3 
+Response: Stop! Thief! 
+File: vo\k\f\Thf_KF002.mp3 
+Response: Thief. No! Thief! 
+File: vo\k\f\Thf_KF001.mp3 
+Response: You can't escape! 
+File: vo\k\f\Thf_KF005.mp3 
+Male
+Response: You can't escape 
+File: vo\k\m\Thf_KM004.mp3 
+Response: Stop! Thief! 
+File: vo\k\m\Thf_KM002.mp3 
+Response: Thief. No! Thief! 
+File: vo\k\m\Thf_KM001.mp3 
+Response: You can't escape! 
+File: vo\k\m\Thf_KM005.mp3 
+Nord
+Female
+Response: Guards! 
+File: vo\n\f\Thf_NF004.mp3 
+Response: Quickly, over here! A thief! 
+File: vo\n\f\Thf_NF002.mp3 
+Response: Stop that thief! 
+File: vo\n\f\Thf_NF001.mp3 
+Male
+Response: There is a thief here! Guards! 
+File: vo\n\m\Thf_NM004.mp3 
+Response: Not today, thief! 
+File: vo\n\m\Thf_NM002.mp3 
+Response: This is the end for you, thief! 
+File: vo\n\m\Thf_NM001.mp3 
+Response: Stay where you are, thief! 
+File: vo\n\m\Thf_NM005.mp3 
+Orc
+Female
+Response: Surrender, thief! 
+File: vo\o\f\Thf_OF004.mp3 
+Response: Hold, thief! 
+File: vo\o\f\Thf_OF003.mp3 
+Response: Guards! A thief! 
+File: vo\o\f\Thf_OF002.mp3 
+Response: You think me a fool? Guards! 
+File: vo\o\f\Thf_OF001.mp3 
+Response: You can't hide, thief! 
+File: vo\o\f\Thf_OF005.mp3 
+Male
+Response: Thief! 
+File: vo\o\m\Thf_OM004.mp3 
+Response: Coward! 
+File: vo\o\m\Thf_OM003.mp3 
+Response: Surrender yourself! Guards! 
+File: vo\o\m\Thf_OM002.mp3 
+Response: Do you take me for a fool? 
+File: vo\o\m\Thf_OM001.mp3 
+Response: You can't escape! 
+File: vo\o\m\Thf_OM005.mp3 
+Redguard
+Female
+Response: Over here! 
+File: vo\r\f\Thf_RF004.mp3 
+Response: You'll pay for that! 
+File: vo\r\f\Thf_RF003.mp3 
+Response: Guards! 
+File: vo\r\f\Thf_RF002.mp3 
+Response: Not on my watch, thief. 
+File: vo\r\f\Thf_RF001.mp3 
+Response: I will not be taken for a fool! 
+File: vo\r\f\Thf_RF005.mp3 
+Male
+Response: You'll pay for that! 
+File: vo\r\m\Thf_RM003.mp3 
+Response: Over here! 
+File: vo\r\m\Thf_RM004.mp3 
+Response: Guards! 
+File: vo\r\m\Thf_RM002.mp3 
+Response: Not on my watch, thief. 
+File: vo\r\m\Thf_RM001.mp3 
+Response: I will not be taken for a fool! 
+File: vo\r\m\Thf_RM005.mp3 
+Wood Elf
+Female
+Response: You'll get yours, thief! 
+File: vo\w\f\Thf_WF004.mp3 
+Response: Over here! A thief! 
+File: vo\w\f\Thf_WF003.mp3 
+Response: What are you doing?! 
+File: vo\w\f\Thf_WF002.mp3 
+Response: Over here! Thief! 
+File: vo\w\f\Thf_WF005.mp3 
+Male
+Response: You've stolen for the last time, thief! 
+File: vo\w\m\Thf_WM004.mp3 
+Response: Over here! 
+File: vo\w\m\Thf_WM003.mp3 
+Response: Outrageous! 
+File: vo\w\m\Thf_WM002.mp3 
+Response: No! Stop! 
+File: vo\w\m\Thf_WM001.mp3 
+Response: What's this? Thief! 
+File: vo\w\m\Thf_WM005.mp3
+T_Mw_Malahk_Orc
+Female
+Response: Surrender, thief!
+File: vo\o\f\Thf_OF004.mp3
+Response: Hold, thief!
+File: vo\o\f\Thf_OF003.mp3
+Response: Guards! A thief!
+File: vo\o\f\Thf_OF002.mp3
+Response: You think me a fool? Guards!
+File: vo\o\f\Thf_OF001.mp3
+Response: You can't hide, thief!
+File: vo\o\f\Thf_OF005.mp3
+Male
+Response: Thief!
+File: vo\o\m\Thf_OM004.mp3
+Response: Coward!
+File: vo\o\m\Thf_OM003.mp3
+Response: Surrender yourself! Guards!
+File: vo\o\m\Thf_OM002.mp3
+Response: Do you take me for a fool?
+File: vo\o\m\Thf_OM001.mp3
+Response: You can't escape!
+File: vo\o\m\Thf_OM005.mp3
+T_Val_Imga
+Male
+Response: Guards! Guards! There is a thief among us!
+File: Va\Vo\img\m\Thf_004.mp3
+Response: Thievery! Banditry! Skullduggery!
+File: Va\Vo\img\m\Thf_003.mp3
+Response: I see you, thief.
+File: Va\Vo\img\m\Thf_002.mp3
+Response: Your name will live in infamy, blasted thief.
+File: Va\Vo\img\m\Thf_001.mp3
+T_Cnq_ChimeriQuey
+Female
+Response: You are repulsive. Get out of here!
+File: TR\Vo\TR_ChiF_Hlo_001.mp3
+Male
+Response: Go away.
+File: TR\Vo\TR_ChiM_Hlo_002.mp3
+T_Cnq_Keptu
+Female
+Response: No!
+File: TR\Vo\TR_KepF_Hit_001.mp3
+Male
+Response: Ugghh! Not today!
+File: TR\Vo\TR_KepM_Hlo_002.mp3
+T_Sky_Reachman
+Female
+Response: Put it back!
+File: vo\b\f\Thf_BF004.mp3
+Response: I saw that!
+File: vo\b\f\Thf_BF003.mp3
+Response: This is outrageous. Guards!
+File: vo\b\f\Thf_BF002.mp3
+Response: You scoundrel!
+File: vo\b\f\Thf_BF001.mp3
+Response: Do you take me for a fool!
+File: vo\b\f\Thf_BF005.mp3
+Male
+Response: Surrender!
+File: sky\Vo\Rc\m\Thf_RcM002.mp3
+Response: You take me for a fool.
+File: sky\Vo\Rc\m\Thf_RcM003.mp3
+Response: Thief!
+File: sky\Vo\Rc\m\Thf_RcM004.mp3
+Response: Over here!
+File: sky\Vo\Rc\m\Thf_RcM001.mp3
